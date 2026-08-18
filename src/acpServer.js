@@ -83,11 +83,30 @@ export function createAcpServer(options) {
     session.abort = controller;
 
     try {
+      // First sighting of a tool id is a tool_call; later ones update it.
+      const announced = new Set();
       const result = await options.runTurn({
         sessionId,
         prompt: promptToText(params.prompt),
         signal: controller.signal,
         emitText: (text) => emitAgentText(sessionId, text),
+        emitTool: (record) => {
+          const toolCall = {
+            toolCallId: record.id,
+            title: record.name,
+            kind: "other",
+            status: record.status,
+            content: [
+              { type: "content", content: { type: "text", text: prettyArgs(record.args) } },
+            ],
+          };
+          if (announced.has(record.id)) {
+            emitToolCallUpdate(sessionId, { toolCallId: record.id, status: record.status });
+          } else {
+            announced.add(record.id);
+            emitToolCall(sessionId, toolCall);
+          }
+        },
       });
       return { stopReason: result?.stopReason ?? "end_turn" };
     } catch (error) {

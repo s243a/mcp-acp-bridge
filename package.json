@@ -9,7 +9,8 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:live": "node test/live-claude.mjs",
-    "test:bridge": "node test/live-bridge.mjs"
+    "test:bridge": "node test/live-bridge.mjs",
+    "test:agy": "node test/live-agy.mjs"
   },
   "repository": {
     "type": "git",

@@ -65,7 +65,7 @@ export async function startBridge(options = {}) {
       runtimes.delete(sessionId);
     },
 
-    runTurn: async ({ sessionId, prompt, signal, emitText }) => {
+    runTurn: async ({ sessionId, prompt, signal, emitText, emitTool }) => {
       const runtime = runtimes.get(sessionId);
       if (!runtime) throw new Error(`no runtime for session ${sessionId}`);
 
@@ -83,9 +83,14 @@ export async function startBridge(options = {}) {
       });
 
       log(`[agent] ${adapter.command} turn (resume=${runtime.started})`);
-      const text = await runProcess(adapter, args, { cwd, signal, onText: emitText });
+      const outcome = await runProcess(adapter, args, {
+        cwd,
+        signal,
+        onText: emitText,
+        onTool: emitTool,
+      });
       runtime.started = true;
-      return { stopReason: "end_turn", text };
+      return { stopReason: outcome.stopReason ?? "end_turn", text: outcome.text };
     },
   });
 
@@ -100,7 +105,7 @@ export async function startBridge(options = {}) {
   };
 }
 
-function runProcess(adapter, args, { cwd, signal, onText }) {
+function runProcess(adapter, args, { cwd, signal, onText, onTool }) {
   return new Promise((resolve, reject) => {
     const child = spawn(adapter.command, args, {
       cwd,
@@ -109,15 +114,48 @@ function runProcess(adapter, args, { cwd, signal, onText }) {
 
     let out = "";
     let err = "";
+    let pending = "";
+    let stopReason;
 
     const onAbort = () => child.kill("SIGTERM");
     signal?.addEventListener("abort", onAbort, { once: true });
 
+    /** Dispatch one structured record from a line-oriented agent. */
+    const handleRecord = (record) => {
+      if (!record) return;
+      if (record.kind === "text") {
+        out += record.text;
+        onText?.(record.text);
+        return;
+      }
+      if (record.kind === "tool") {
+        onTool?.(record);
+        return;
+      }
+      if (record.kind === "result") {
+        // The result carries the whole answer; text deltas already streamed it,
+        // so keep it only when nothing streamed.
+        if (!out) out = record.text ?? "";
+        stopReason = record.stopReason;
+      }
+    };
+
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
-      out += chunk;
-      // Stream as it arrives so the client sees progress mid-turn.
-      onText?.(adapter.readText(chunk));
+      if (!adapter.parseLine) {
+        out += chunk;
+        // Stream as it arrives so the client sees progress mid-turn.
+        onText?.(adapter.readText(chunk));
+        return;
+      }
+      // Line-oriented agents: a partial trailing line waits for its newline.
+      pending += chunk;
+      let index;
+      while ((index = pending.indexOf("\n")) !== -1) {
+        const line = pending.slice(0, index).trim();
+        pending = pending.slice(index + 1);
+        if (line) handleRecord(adapter.parseLine(line));
+      }
     });
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => (err += chunk));
@@ -133,7 +171,10 @@ function runProcess(adapter, args, { cwd, signal, onText }) {
       if (code !== 0) {
         return reject(new Error(`${adapter.command} exited ${code}${err ? `: ${err.trim()}` : ""}`));
       }
-      resolve(out);
+      if (adapter.parseLine && pending.trim()) {
+        handleRecord(adapter.parseLine(pending.trim()));
+      }
+      resolve({ text: out, stopReason });
     });
   });
 }
