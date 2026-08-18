@@ -57,6 +57,11 @@ export function createAcpServer(options) {
     authMethods: [],
   }));
 
+  // Clients authenticate unconditionally even when we advertise no methods
+  // (T3 Code does this). Accepting is correct: the agent subprocess owns its
+  // own credentials, so there is nothing for the bridge to authenticate.
+  peer.on("authenticate", async () => ({}));
+
   peer.on("session/new", async (params) => {
     const created = (await options.createSession?.({ cwd: params?.cwd })) ?? {
       sessionId: randomUUID(),

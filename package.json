@@ -25,5 +25,8 @@
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "bin": {
+    "mcp-acp-bridge": "bin/bridge.js"
   }
 }
