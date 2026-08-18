@@ -67,7 +67,9 @@ export function createAcpServer(options) {
       sessionId: randomUUID(),
     };
     sessions.set(created.sessionId, { abort: null, alwaysAllowed: new Set() });
-    return { sessionId: created.sessionId };
+    // Clients discover the model list from the session response and treat an
+    // absent one as a broken agent, so always advertise at least one.
+    return { sessionId: created.sessionId, models: modelState() };
   });
 
   peer.on("session/prompt", async (params) => {
@@ -188,6 +190,24 @@ export function createAcpServer(options) {
       sessions.delete(id);
       options.onSessionEnd?.(id);
     },
+  };
+}
+
+/**
+ * The model list a client sees. The bridge does not choose models — the agent
+ * CLI does, from its own config — so this advertises the bridge itself as the
+ * single choice rather than inventing a menu it cannot honour.
+ */
+function modelState() {
+  return {
+    currentModelId: "bridge-agent",
+    availableModels: [
+      {
+        modelId: "bridge-agent",
+        name: "Bridge agent",
+        description: "Whichever CLI this bridge was started with.",
+      },
+    ],
   };
 }
 

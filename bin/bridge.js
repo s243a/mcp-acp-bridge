@@ -41,7 +41,30 @@ function parseArgs(argv) {
   return options;
 }
 
-const options = parseArgs(process.argv.slice(2));
+/**
+ * Probe mode.
+ *
+ * Clients health-check an agent binary before using it, and a binary that
+ * answers nothing looks broken. T3 Code runs `<binary> agent about` with an 8s
+ * budget and parses `Key<2+ spaces>Value` lines; other clients use --version.
+ * Answering both keeps the bridge usable as a stand-in.
+ */
+const rawArgs = process.argv.slice(2);
+if (rawArgs.includes("about") || rawArgs.includes("--version") || rawArgs.includes("-v")) {
+  const { version } = await import("../package.json", { with: { type: "json" } }).then(
+    (m) => m.default,
+  );
+  process.stdout.write(
+    [
+      `CLI Version         ${version}-mcp-acp-bridge`,
+      `User Email          bridge@localhost`,
+      "",
+    ].join("\n"),
+  );
+  process.exit(0);
+}
+
+const options = parseArgs(rawArgs);
 
 // stdout is the ACP channel — every diagnostic must go to stderr or it corrupts
 // the protocol stream.
