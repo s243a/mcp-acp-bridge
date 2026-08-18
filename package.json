@@ -1,0 +1,28 @@
+{
+  "name": "mcp-acp-bridge",
+  "version": "0.0.1",
+  "description": "ACP server fronting any MCP-speaking coding agent",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:live": "node test/live-claude.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/s243a/mcp-acp-bridge.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/s243a/mcp-acp-bridge/issues"
+  },
+  "homepage": "https://github.com/s243a/mcp-acp-bridge#readme",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  }
+}

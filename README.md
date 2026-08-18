@@ -14,8 +14,35 @@ client (T3 Code, Zed, …) ──ACP──► bridge ──MCP──► agent (a
                                     └─ spawns and supervises the agent process
 ```
 
-> **Status: early. Not yet usable.** Scaffolding and design only — no working
-> implementation. See [docs/design.md](docs/design.md).
+> **Status: the MCP half works. The ACP half does not exist yet.**
+>
+> Tool interception and permission gating are implemented and verified
+> end-to-end against Claude Code as a live MCP client — a call is intercepted,
+> held, allowed or denied, and a denial comes back to the agent as readable
+> text. What is missing is the ACP server that turns those holds into
+> `session/request_permission` for a real client, and the agent supervisor.
+> See [docs/design.md](docs/design.md).
+
+## Try it
+
+```bash
+npm install
+npm test              # unit tests, no agent required
+npm run test:live     # drives the real `claude` CLI against the gateway
+npm run test:live deny
+```
+
+`test:live` needs the `claude` CLI on PATH and authenticated. It hands Claude
+Code a per-session MCP endpoint, asks it to call a tool, and shows the
+interception:
+
+```
+[tool] requested magic_word
+[gate] DENY magic_word {}
+[tool] denied magic_word (denied by test policy)
+[claude] said: The tool call was denied. The error returned was exactly:
+         `Error: permission denied: denied by test policy`
+```
 
 ## Why
 
