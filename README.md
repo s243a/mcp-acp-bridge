@@ -14,14 +14,13 @@ client (T3 Code, Zed, …) ──ACP──► bridge ──MCP──► agent (a
                                     └─ spawns and supervises the agent process
 ```
 
-> **Status: the MCP half works. The ACP half does not exist yet.**
+> **Status: the full chain works.** An ACP client drives the bridge, the bridge
+> spawns a real agent, the agent's MCP tool call is held, and it surfaces to the
+> client as `session/request_permission` — answered with allow or deny, either
+> outcome reaching the agent legibly. Verified end-to-end against Claude Code.
 >
-> Tool interception and permission gating are implemented and verified
-> end-to-end against Claude Code as a live MCP client — a call is intercepted,
-> held, allowed or denied, and a denial comes back to the agent as readable
-> text. What is missing is the ACP server that turns those holds into
-> `session/request_permission` for a real client, and the agent supervisor.
-> See [docs/design.md](docs/design.md).
+> Not yet done: `session/load` (resume), command allow/block lists, and
+> broker-provided file and shell tools. See [docs/design.md](docs/design.md).
 
 ## Try it
 
@@ -29,7 +28,8 @@ client (T3 Code, Zed, …) ──ACP──► bridge ──MCP──► agent (a
 npm install
 npm test              # unit tests, no agent required
 npm run test:live     # drives the real `claude` CLI against the gateway
-npm run test:live deny
+npm run test:bridge   # full chain: ACP client -> bridge -> agent -> approval
+npm run test:bridge deny
 ```
 
 `test:live` needs the `claude` CLI on PATH and authenticated. It hands Claude

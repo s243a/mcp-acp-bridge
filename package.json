@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "test:live": "node test/live-claude.mjs"
+    "test:live": "node test/live-claude.mjs",
+    "test:bridge": "node test/live-bridge.mjs"
   },
   "repository": {
     "type": "git",
