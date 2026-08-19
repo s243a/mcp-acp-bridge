@@ -46,6 +46,9 @@ export function stripAnsi(text) {
     .replace(new RegExp(`${ESC}\\[[0-9;?=><]*[ -/]*[@-~]`, "g"), "")
     .replace(new RegExp(`${ESC}[()][AB0]`, "g"), "")
     .replace(new RegExp(`${ESC}[=>]`, "g"), "")
+    // Two-character escapes: ESC M (reverse index) and friends move the cursor
+    // during a redraw and are not part of any answer.
+    .replace(new RegExp(`${ESC}[@-Z\\\\^_]`, "g"), "")
     // Backspace and bell are how a redraw erases; keeping them corrupts text.
     .replace(/[\u0008\u0007]/g, "");
 }
@@ -58,7 +61,18 @@ export function stripAnsi(text) {
  * rest. Inventing structure the terminal did not clearly show would be worse
  * than handing back something slightly ragged.
  */
-export function extractAnswer(raw) {
+export function extractAnswer(raw, { fromWorkingMarker = true } = {}) {
+  // The worst mangling is the echo of what we typed: the terminal reflows the
+  // input line as it is entered, so it arrives shredded. Everything before the
+  // agent starts working is input, not answer — dropping it removes most of the
+  // damage without needing to emulate a screen.
+  if (fromWorkingMarker) {
+    const plain = stripAnsi(raw);
+    const started = plain.indexOf(WORKING_MARKER);
+    if (started !== -1) return extractAnswer(plain.slice(started + WORKING_MARKER.length), {
+      fromWorkingMarker: false,
+    });
+  }
   const seen = new Set();
   const lines = [];
   for (const line of stripAnsi(raw).split(/\r?\n/)) {
@@ -135,10 +149,7 @@ export function createPtySession({
     const turn = active;
     active = null;
     clearTimeout(turn.timer);
-    const answer = extractAnswer(turn.output);
-    // The echoed prompt is the first thing the terminal shows; it is input, not
-    // an answer.
-    const cleaned = answer.startsWith(turn.prompt) ? answer.slice(turn.prompt.length).trim() : answer;
+    const cleaned = extractAnswer(turn.output);
     if (cleaned) onText?.(cleaned);
     turn.resolve({ text: cleaned });
     pump();
@@ -181,7 +192,7 @@ export function createPtySession({
             // The point of this transport: stop the turn, keep the session.
             if (active === turn) {
               log("[pty] sending ESC to cancel");
-              child?.write("");
+              child?.write(ESC);
             }
             reject(new Error("cancelled"));
           },

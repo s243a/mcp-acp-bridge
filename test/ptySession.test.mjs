@@ -49,3 +49,9 @@ test("nothing but chrome yields nothing, rather than noise", () => {
   const raw = "⣾ \r\n────────\r\n>\r\n? for shortcuts\r\n";
   assert.equal(extractAnswer(raw), "");
 });
+
+test("two-character escapes are removed", () => {
+  // ESC M (reverse index) shows up mid-answer during a redraw.
+  const raw = `before${ESC}Mafter`;
+  assert.equal(stripAnsi(raw), "beforeafter");
+});
