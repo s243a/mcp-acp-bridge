@@ -48,6 +48,10 @@ const CHROME = [
 ];
 
 const ESC = "\u001b";
+const ARROW_DOWN = "\u001b[B";
+const ARROW_UP = "\u001b[A";
+const PICKER_MARKER = "Switch Model";
+const PICKER_END = "Effort";
 
 export function stripAnsi(text) {
   // Anchored on the escape character itself. Matching the bare bracket forms
@@ -99,6 +103,35 @@ export function extractAnswer(raw, { fromWorkingMarker = true } = {}) {
     lines.push(trimmed);
   }
   return lines.join("\n");
+}
+
+
+/**
+ * Read agy's model picker off the screen.
+ *
+ * The picker is a list between its title and the effort slider, with `>`
+ * marking the highlighted row. Returns the visible model names and where the
+ * cursor sits, which is all that is needed to walk to another entry.
+ */
+export function parseModelPicker(screen) {
+  const plain = stripAnsi(screen);
+  const start = plain.lastIndexOf(PICKER_MARKER);
+  if (start === -1) return null;
+
+  const items = [];
+  let cursor = 0;
+  for (const rawLine of plain.slice(start + PICKER_MARKER.length).split("\n")) {
+    const line = rawLine.replace(/\s+$/, "");
+    if (!line.trim()) continue;
+    if (line.includes(PICKER_END)) break;
+    const selected = line.trimStart().startsWith(">");
+    // "(current)" marks the active model; it is not part of its name.
+    const name = line.replace(/^\s*>?\s*/, "").replace(/\s*\(current\)\s*$/, "").trim();
+    if (!name) continue;
+    if (selected) cursor = items.length;
+    items.push(name);
+  }
+  return items.length ? { items, cursor } : null;
 }
 
 export function createPtySession({
@@ -182,6 +215,19 @@ export function createPtySession({
     pump();
   }
 
+  function waitForPicker(timeoutMs = 8_000) {
+    const deadline = Date.now() + timeoutMs;
+    return new Promise((resolve) => {
+      const poll = () => {
+        const picker = parseModelPicker(buffer);
+        if (picker) return resolve(picker);
+        if (Date.now() > deadline) return resolve(null);
+        setTimeout(poll, 120);
+      };
+      poll();
+    });
+  }
+
   function whenReady() {
     if (ready) return Promise.resolve();
     return new Promise((resolve, reject) => {
@@ -247,13 +293,53 @@ export function createPtySession({
         pump();
       });
     },
-    /** Send a slash command, e.g. `/model gemini-3-pro`. */
+    /** Send a slash command, e.g. `/clear`. */
     sendCommand(text) {
       start();
       return whenReady().then(() => {
         log(`[pty] command ${text}`);
         child.write(`${text}\r`);
       });
+    },
+    /**
+     * Switch model through agy's picker.
+     *
+     * `/model <name>` is not a setter — the argument is ignored and the picker
+     * opens regardless, so the only way to choose is to walk the list the way a
+     * user would. Names are matched loosely because the screen may abbreviate.
+     */
+    async selectModel(name) {
+      start();
+      await whenReady();
+      log(`[pty] opening the model picker for ${name}`);
+      buffer = "";
+      child.write("/model\r");
+
+      const picker = await waitForPicker();
+      if (!picker) {
+        child.write(ESC);
+        throw new Error("the model picker did not open");
+      }
+
+      const wanted = String(name).toLowerCase().trim();
+      const target = picker.items.findIndex((item) => {
+        const candidate = item.toLowerCase();
+        return candidate === wanted || candidate.startsWith(wanted) || wanted.startsWith(candidate);
+      });
+      if (target === -1) {
+        // Leaving the picker open would swallow the next turn's keystrokes.
+        child.write(ESC);
+        throw new Error(`no model matching "${name}" (offered: ${picker.items.join(", ")})`);
+      }
+
+      const steps = target - picker.cursor;
+      for (let i = 0; i < Math.abs(steps); i += 1) {
+        child.write(steps > 0 ? ARROW_DOWN : ARROW_UP);
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      }
+      child.write("\r");
+      log(`[pty] selected ${picker.items[target]}`);
+      return picker.items[target];
     },
     running: () => child !== null,
     stop() {

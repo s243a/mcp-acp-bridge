@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { extractAnswer, stripAnsi } from "../src/ptySession.js";
+import { extractAnswer, parseModelPicker, stripAnsi } from "../src/ptySession.js";
 
 const ESC = String.fromCharCode(27);
 
@@ -60,4 +60,46 @@ test("fragments of animated words are dropped, real words are not", () => {
   // Redraws shred "Generating..." into pieces; a colour is not a piece of it.
   const raw = "enerat\nrating\nting..\nRed\nGreen\nBlue\nGemini 3.7 Flash · high";
   assert.equal(extractAnswer(raw, { fromWorkingMarker: false }), "Red\nGreen\nBlue");
+});
+
+const PICKER_SCREEN = [
+  "Switch Model",
+  "> Gemini 3.7 Flash             (current)",
+  "  Gemini 3.6 Flash",
+  "  Gemini 3.1 Pro",
+  "  Claude Sonnet 4.6 (Thinking)",
+  "  Effort  low          medium          high",
+  " Faster responses, lighter reasoning",
+].join("\r\n");
+
+test("the model picker is read as a list and a cursor", () => {
+  assert.deepEqual(parseModelPicker(PICKER_SCREEN), {
+    items: [
+      "Gemini 3.7 Flash",
+      "Gemini 3.6 Flash",
+      "Gemini 3.1 Pro",
+      "Claude Sonnet 4.6 (Thinking)",
+    ],
+    cursor: 0,
+  });
+});
+
+test("the cursor is found wherever it sits, and (current) is not a name", () => {
+  const screen = PICKER_SCREEN.replace("> Gemini 3.7 Flash", "  Gemini 3.7 Flash").replace(
+    "  Gemini 3.1 Pro",
+    "> Gemini 3.1 Pro",
+  );
+  const picker = parseModelPicker(screen);
+  assert.equal(picker.cursor, 2);
+  assert.equal(picker.items[0], "Gemini 3.7 Flash");
+});
+
+test("nothing is claimed when the picker is not on screen", () => {
+  assert.equal(parseModelPicker("? for shortcutsGemini 3.7 Flash \u00b7 high"), null);
+});
+
+test("the effort slider ends the list rather than joining it", () => {
+  const picker = parseModelPicker(PICKER_SCREEN);
+  assert.ok(!picker.items.some((item) => item.includes("Effort")));
+  assert.ok(!picker.items.some((item) => item.includes("Faster responses")));
 });

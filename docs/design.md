@@ -147,6 +147,22 @@ Four things about agy have to line up for this to work, each verified on 1.1.14:
    dependence on correctly detecting readiness. Because agy then asks for its
    task moments after spawn, the task must be queued before the process starts.
 
+## Choosing a model
+
+`session/set_model` carries the client's choice to the agent. For a terminal
+agent that means driving the picker, because `/model <name>` is not a setter:
+agy ignores the argument and opens the picker regardless. The bridge opens it,
+reads the list and cursor off the screen, walks to the wanted entry with arrow
+keys and selects it — matching names loosely, since the screen may abbreviate.
+
+An unknown name closes the picker before failing. Leaving it open would swallow
+the next turn's keystrokes, which looks like a hang rather than a bad name.
+
+Selecting a model also resets agy's effort (a model switch showed
+`Gemini 3.7 Flash · high` becoming `Gemini 3.1 Pro · low`). Effort is a separate
+axis in the same picker and is not exposed yet; it belongs with the other
+per-turn options if it is wanted.
+
 ## Planned hardening: built-ins through MCP
 
 Disabling an agent's built-in file and shell tools and supplying equivalents as

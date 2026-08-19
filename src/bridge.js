@@ -126,6 +126,18 @@ export async function startBridge(options = {}) {
       runtimes.delete(sessionId);
     },
 
+    onSetModel: async ({ sessionId, modelId }) => {
+      // A terminal agent changes model the way a user would. Agents driven any
+      // other way have no equivalent, so this is quietly a no-op for them.
+      const runtime = runtimes.get(sessionId);
+      if (!runtime?.agent?.selectModel || typeof modelId !== "string" || !modelId) return;
+      log(`[agent] switching model to ${modelId}`);
+      // Best-effort: a model that cannot be selected should not fail the
+      // session, and the name is the user's to correct.
+      await runtime.agent.selectModel(modelId).catch((error) => {
+        log(`[agent] could not switch model: ${error?.message ?? error}`);
+      });
+    },
     runTurn: async ({ sessionId, prompt, signal, emitText, emitTool }) => {
       const runtime = runtimes.get(sessionId);
       if (!runtime) throw new Error(`no runtime for session ${sessionId}`);

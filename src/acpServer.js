@@ -153,6 +153,13 @@ export function createAcpServer(options) {
     return { configOptions: configOptions(session?.review) };
   });
 
+  peer.on("session/set_model", async (params) => {
+    // The client picks from a list it was given; only the agent knows how to
+    // act on it, so this is a pass-through rather than a validated choice.
+    await options.onSetModel?.({ sessionId: params?.sessionId, modelId: params?.modelId });
+    return {};
+  });
+
   peer.on("session/cancel", (params) => {
     sessions.get(params?.sessionId)?.abort?.abort();
   });

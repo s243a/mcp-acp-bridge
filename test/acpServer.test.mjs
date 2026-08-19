@@ -14,11 +14,11 @@ import { createPeer } from "../src/jsonRpc.js";
 import { makeGate } from "../src/gate.js";
 
 /** Wire a server and a client peer to each other. */
-function connect({ runTurn = async () => ({}) } = {}) {
+function connect({ runTurn = async () => ({}), onSetModel } = {}) {
   const toServer = new PassThrough();
   const toClient = new PassThrough();
 
-  const server = createAcpServer({ input: toServer, output: toClient, runTurn });
+  const server = createAcpServer({ input: toServer, output: toClient, runTurn, onSetModel });
   const client = createPeer({ input: toClient, output: toServer });
   const updates = [];
   client.on("session/update", (params) => updates.push(params));
@@ -184,4 +184,19 @@ test("cancel ends the turn with stopReason cancelled", async () => {
   client.notify("session/cancel", { sessionId });
 
   assert.equal((await turn).stopReason, "cancelled");
+});
+
+test("a model choice is passed through to the agent", async () => {
+  const seen = [];
+  const { client } = connect({ onSetModel: (input) => seen.push(input) });
+  const sessionId = await newSession(client);
+
+  const response = await client.request("session/set_model", {
+    sessionId,
+    modelId: "gemini-3.7-pro",
+  });
+
+  // Only the agent knows what a model id means, so the surface just relays it.
+  assert.deepEqual(response, {});
+  assert.deepEqual(seen, [{ sessionId, modelId: "gemini-3.7-pro" }]);
 });
