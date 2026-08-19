@@ -66,10 +66,18 @@ export function createAcpServer(options) {
     const created = (await options.createSession?.({ cwd: params?.cwd })) ?? {
       sessionId: randomUUID(),
     };
-    sessions.set(created.sessionId, { abort: null, alwaysAllowed: new Set() });
+    sessions.set(created.sessionId, {
+      abort: null,
+      alwaysAllowed: new Set(),
+      review: options.defaultReview ?? "review-everything",
+    });
     // Clients discover the model list from the session response and treat an
     // absent one as a broken agent, so always advertise at least one.
-    return { sessionId: created.sessionId, models: modelState() };
+    return {
+      sessionId: created.sessionId,
+      models: modelState(),
+      configOptions: configOptions(options.defaultReview),
+    };
   });
 
   peer.on("session/prompt", async (params) => {
@@ -131,12 +139,18 @@ export function createAcpServer(options) {
   // an unknown option as a no-op rather than an error, so a client offering more
   // pickers than this agent understands still works.
   peer.on("session/set_config_option", async (params) => {
+    const session = sessions.get(params?.sessionId);
+    if (params?.configId === "review" && typeof params?.value === "string" && session) {
+      session.review = params.value;
+    }
     options.onConfigOption?.({
       sessionId: params?.sessionId,
       configId: params?.configId,
       value: params?.value,
     });
-    return {};
+    // The full set, with current values — an empty response fails the client's
+    // schema and ends the session.
+    return { configOptions: configOptions(session?.review) };
   });
 
   peer.on("session/cancel", (params) => {
@@ -232,6 +246,38 @@ export function createAcpServer(options) {
       options.onSessionEnd?.(id);
     },
   };
+}
+
+/**
+ * Session configuration options, in ACP's own vocabulary.
+ *
+ * A client that offers a picker expects the full set back on every change —
+ * `SetSessionConfigOptionResponse` requires `configOptions`, and answering with
+ * an empty object fails its schema and takes the whole session down with it.
+ */
+function configOptions(currentReview = "review-everything") {
+  return [
+    {
+      id: "review",
+      name: "Review",
+      description: "Which tool calls stop for approval before they run.",
+      type: "select",
+      currentValue: currentReview,
+      options: [
+        { value: "review-everything", name: "Everything", description: "Approve every tool call." },
+        {
+          value: "review-consequential",
+          name: "Consequential only",
+          description: "Reads run freely; writes, commands and network stop for approval.",
+        },
+        {
+          value: "allow-all",
+          name: "Nothing",
+          description: "Approve automatically. Only sensible when something else gates.",
+        },
+      ],
+    },
+  ];
 }
 
 /**
