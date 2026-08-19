@@ -15,6 +15,7 @@ import { createAgentSession } from "./agentSession.js";
 import { registerWorkspaceMcp } from "./workspaceConfig.js";
 import { getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
+import { makePolicy, withPolicy } from "./policy.js";
 
 /**
  * @param {{
@@ -38,9 +39,19 @@ export async function startBridge(options = {}) {
   // Declared first so the gateway can reach the ACP decider; assigned below.
   let acp;
 
+  // Policy first, human second: allow and deny never reach a person, so a
+  // subagent's forty reads do not become forty prompts.
+  const policy = makePolicy(options.policy, { log });
+  const gate = makeGate(
+    withPolicy(policy, (call) => acp.decide(call), {
+      onDecision: ({ tool, verdict, reason }) => log(`[policy] ${verdict} ${tool} (${reason})`),
+    }),
+    { timeoutMs: options.timeoutMs },
+  );
+
   const gateway = createGateway({
     tools: options.tools ?? [],
-    gate: makeGate((call) => acp.decide(call), { timeoutMs: options.timeoutMs }),
+    gate,
     onToolCall: (event) => log(`[tool] ${event.phase} ${event.tool}`),
   });
 
@@ -124,7 +135,15 @@ export async function startBridge(options = {}) {
     acp,
     gateway,
     port: server.port,
+    policy,
     async close() {
+      // Sessions may still hold a workspace registration; leaving one behind
+      // would put a stale endpoint in someone's project.
+      for (const runtime of runtimes.values()) {
+        runtime.agent?.stop();
+        runtime.workspace?.release();
+      }
+      runtimes.clear();
       await server.close();
       acp.peer.close();
     },

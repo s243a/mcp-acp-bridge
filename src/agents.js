@@ -79,34 +79,99 @@ export const adapters = {
       if (skipAgentPermissions) args.push("--dangerously-skip-permissions");
       return args;
     },
-    encodeTurn(text) {
-      return JSON.stringify({
-        type: "user",
-        message: { role: "user", content: [{ type: "text", text }] },
-      });
-    },
+    encodeTurn: encodeAgyTurn,
     parseLine: parseAgyLine,
   },
 
   /**
-   * Antigravity CLI over two channels: a PTY for steering and MCP for work.
+   * agy with OS sandboxing, its own prompts skipped.
    *
-   * The stdio channel above cannot carry an interrupt or a slash command, so
-   * `session/cancel` can only kill the process and `session/set_model` has
-   * nowhere to go. A PTY answers both, at the cost of prose arriving as a
-   * redrawing terminal rather than as data.
+   * Headless agy auto-denies anything needing permission, which makes shell
+   * commands and even MCP unreachable. Skipping its prompts restores them and
+   * leans on `--sandbox` for terminal restrictions instead of a human.
    *
-   * Not implemented. Named here so the choice is visible and the key is
-   * reserved, rather than discovered later as a missing feature.
+   * Built-in tools are therefore NOT reviewed — the sandbox is the only thing
+   * between the agent and the machine. Bridge-provided tools are still gated.
+   */
+  "agy-sandboxed": {
+    name: "agy-sandboxed",
+    command: "agy",
+    restrictToMcp: false,
+    persistent: true,
+    mcpViaWorkspaceFile: true,
+    buildSessionArgs({ cwd }) {
+      return [
+        "--add-dir",
+        cwd,
+        "--sandbox",
+        "--dangerously-skip-permissions",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+      ];
+    },
+    encodeTurn: encodeAgyTurn,
+    parseLine: parseAgyLine,
+  },
+
+  /**
+   * agy whose consequential work goes through the bridge, where policy decides
+   * and a human can be asked.
+   *
+   * Honest limitation: agy's built-in tools cannot be turned off, so this adds
+   * a gated path rather than replacing the ungated one. It is the right profile
+   * when the task is meant to run through bridge-provided tools and you want
+   * those reviewed.
+   */
+  "agy-gated": {
+    name: "agy-gated",
+    command: "agy",
+    restrictToMcp: false,
+    persistent: true,
+    mcpViaWorkspaceFile: true,
+    buildSessionArgs({ cwd }) {
+      return [
+        "--add-dir",
+        cwd,
+        "--dangerously-skip-permissions",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+      ];
+    },
+    encodeTurn: encodeAgyTurn,
+    parseLine: parseAgyLine,
+  },
+
+  /**
+   * agy over two channels: a PTY for steering and MCP for work.
+   *
+   * The stdio channel above carries structured data, so it cannot also carry an
+   * interrupt or a slash command: `session/cancel` can only kill the process and
+   * `session/set_model` has nowhere to go. A PTY answers both, and is also the
+   * only place agy's own permission prompts can be answered.
+   *
+   * Not implemented. Named so the choice is visible rather than discovered
+   * later as a missing feature.
    */
   "agy-dual": {
     name: "agy-dual",
     command: "agy",
     restrictToMcp: false,
     unavailable:
-      "The dual-channel agy profile (PTY steering + MCP) is not implemented yet. Use 'agy' for now.",
+      "The dual-channel agy profile (PTY steering + MCP) is not implemented yet. Use 'agy', 'agy-sandboxed' or 'agy-gated'.",
   },
 };
+
+/** agy takes one NDJSON turn per line on stdin. */
+function encodeAgyTurn(text) {
+  return JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "text", text }] },
+  });
+}
 
 /**
  * Translate one line of agy's stream-json into bridge-neutral records.

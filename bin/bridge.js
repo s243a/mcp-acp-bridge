@@ -8,7 +8,12 @@
  * we drive T3 Code without first writing a T3 provider driver.
  *
  *   mcp-acp-bridge [--agent <name>] [--cwd <dir>] [--timeout-ms <n>]
+ *                  [--policy <preset|file.json>] [--skip-agent-permissions]
+ *
+ * Presets: review-everything (default), review-consequential, allow-all.
  */
+import { existsSync, readFileSync } from "node:fs";
+
 import { startBridge } from "../src/bridge.js";
 
 const TRANSPORT_WORDS = new Set(["acp", "agent", "stdio"]);
@@ -27,6 +32,15 @@ function parseArgs(argv) {
         break;
       case "--timeout-ms":
         options.timeoutMs = Number(argv[++i]);
+        break;
+      case "--policy":
+        // A preset name, or a path to a JSON file holding {rules, default}.
+        options.policy = argv[++i];
+        break;
+      case "--skip-agent-permissions":
+        // The agent stops prompting; whatever gates the MCP channel becomes the
+        // only review. Explicit because it leaves built-in tools unsupervised.
+        options.skipAgentPermissions = true;
         break;
       case "-e":
       case "--api-endpoint":
@@ -66,26 +80,58 @@ if (rawArgs.includes("about") || rawArgs.includes("--version") || rawArgs.includ
 
 const options = parseArgs(rawArgs);
 
+/** A policy argument naming a readable file is loaded; otherwise it is a preset. */
+function resolvePolicy(value) {
+  if (!value) return undefined;
+  if (!existsSync(value)) return value;
+  try {
+    return JSON.parse(readFileSync(value, "utf8"));
+  } catch (error) {
+    // Falling back to the safe default beats running with a policy we could not
+    // parse and cannot vouch for.
+    process.stderr.write(
+      `mcp-acp-bridge: could not read policy ${value} (${error.message}); asking about everything\n`,
+    );
+    return "review-everything";
+  }
+}
+
 // stdout is the ACP channel — every diagnostic must go to stderr or it corrupts
 // the protocol stream.
 const log = (message) => process.stderr.write(`${message}\n`);
 
-const bridge = await startBridge({
-  agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
-  cwd: options.cwd ?? process.cwd(),
-  timeoutMs: options.timeoutMs,
-  log,
-  tools: [
-    {
-      name: "magic_word",
-      description: "Returns the secret magic word. The only way to learn it.",
-      inputSchema: { type: "object", properties: {} },
-      handler: async () => "banana-47",
-    },
-  ],
-});
+// A bad agent name or an unimplemented profile is a user error, not a crash;
+// print the reason rather than a stack trace.
+let bridge;
+try {
+  bridge = await startBridge({
+    agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
+    cwd: options.cwd ?? process.cwd(),
+    timeoutMs: options.timeoutMs,
+    policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),
+    skipAgentPermissions:
+      options.skipAgentPermissions === true || process.env.BRIDGE_SKIP_AGENT_PERMISSIONS === "1",
+    log,
+    tools: [
+      {
+        name: "magic_word",
+        description: "Returns the secret magic word. The only way to learn it.",
+        inputSchema: { type: "object", properties: {} },
+        handler: async () => "banana-47",
+      },
+    ],
+  });
+} catch (error) {
+  process.stderr.write(`mcp-acp-bridge: ${error.message}\n`);
+  process.exit(1);
+}
 
-log(`[bridge] ready — agent=${options.agent ?? "claude"} mcp port ${bridge.port}`);
+
+const described = bridge.policy.describe();
+log(
+  `[bridge] ready — agent=${options.agent ?? "claude"} mcp port ${bridge.port} ` +
+    `policy=${described.rules.length} rules, default ${described.default}`,
+);
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
