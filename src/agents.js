@@ -55,13 +55,39 @@ export const adapters = {
     name: "agy",
     command: "agy",
     restrictToMcp: false,
-    buildArgs({ prompt, cwd, resume }) {
-      const args = ["--add-dir", cwd, "--output-format", "stream-json"];
-      if (resume) args.push("-c");
-      args.push("-p", prompt);
-      return args;
+    // One process for the whole session: turns arrive on stdin as NDJSON and
+    // answers stream back on stdout, so startup and context are paid once
+    // instead of per turn.
+    persistent: true,
+    buildSessionArgs({ cwd }) {
+      return ["--add-dir", cwd, "--input-format", "stream-json", "--output-format", "stream-json"];
+    },
+    encodeTurn(text) {
+      return JSON.stringify({
+        type: "user",
+        message: { role: "user", content: [{ type: "text", text }] },
+      });
     },
     parseLine: parseAgyLine,
+  },
+
+  /**
+   * Antigravity CLI over two channels: a PTY for steering and MCP for work.
+   *
+   * The stdio channel above cannot carry an interrupt or a slash command, so
+   * `session/cancel` can only kill the process and `session/set_model` has
+   * nowhere to go. A PTY answers both, at the cost of prose arriving as a
+   * redrawing terminal rather than as data.
+   *
+   * Not implemented. Named here so the choice is visible and the key is
+   * reserved, rather than discovered later as a missing feature.
+   */
+  "agy-dual": {
+    name: "agy-dual",
+    command: "agy",
+    restrictToMcp: false,
+    unavailable:
+      "The dual-channel agy profile (PTY steering + MCP) is not implemented yet. Use 'agy' for now.",
   },
 };
 
@@ -127,5 +153,8 @@ export function getAdapter(name) {
   if (!adapter) {
     throw new Error(`unknown agent '${name}' (known: ${Object.keys(adapters).join(", ")})`);
   }
+  // Fail at selection rather than at the first turn, when the user has already
+  // typed a prompt and expects an answer.
+  if (adapter.unavailable) throw new Error(adapter.unavailable);
   return adapter;
 }

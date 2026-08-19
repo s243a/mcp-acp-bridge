@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 
 import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
+import { createAgentSession } from "./agentSession.js";
 import { getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
 
@@ -61,13 +62,31 @@ export async function startBridge(options = {}) {
 
     onSessionEnd: (sessionId) => {
       const runtime = runtimes.get(sessionId);
-      if (runtime) gateway.closeSession(runtime.token);
+      if (runtime) {
+        runtime.agent?.stop();
+        gateway.closeSession(runtime.token);
+      }
       runtimes.delete(sessionId);
     },
 
     runTurn: async ({ sessionId, prompt, signal, emitText, emitTool }) => {
       const runtime = runtimes.get(sessionId);
       if (!runtime) throw new Error(`no runtime for session ${sessionId}`);
+
+      // A persistent agent keeps one conversation for the whole ACP session,
+      // so startup and context are paid once rather than per turn.
+      if (adapter.persistent) {
+        runtime.agent ??= createAgentSession({
+          adapter,
+          cwd,
+          onText: emitText,
+          onTool: emitTool,
+          log,
+        });
+        const outcome = await runtime.agent.prompt(prompt, { signal });
+        runtime.started = true;
+        return { stopReason: "end_turn", text: outcome.text };
+      }
 
       const mcpConfig = JSON.stringify({
         mcpServers: { bridge: { type: "http", url: runtime.url } },
