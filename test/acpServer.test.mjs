@@ -134,6 +134,29 @@ test("a turn streams assistant text as agent_message_chunk", async () => {
   assert.equal(text, "hello world");
 });
 
+test("a failing turn closes as a refusal, never as a transport error", async () => {
+  // A JSON-RPC error is not a turn outcome. Clients that only settle on a
+  // result wait forever on a turn that already ended.
+  const { client, updates } = connect({
+    runTurn: async () => {
+      throw new Error("agent exited 1");
+    },
+  });
+  const sessionId = await newSession(client);
+
+  const result = await client.request("session/prompt", {
+    sessionId,
+    prompt: [{ type: "text", text: "do a thing" }],
+  });
+
+  assert.equal(result.stopReason, "refusal");
+  const said = updates
+    .filter((u) => u.update.sessionUpdate === "agent_message_chunk")
+    .map((u) => u.update.content.text)
+    .join("");
+  assert.match(said, /agent exited 1/, "the reason must reach the transcript");
+});
+
 test("prompting an unknown session is an invalid-params error", async () => {
   const { client } = connect();
   await client.request("initialize", {});

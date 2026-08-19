@@ -111,7 +111,17 @@ export function createAcpServer(options) {
       return { stopReason: result?.stopReason ?? "end_turn" };
     } catch (error) {
       if (controller.signal.aborted) return { stopReason: "cancelled" };
-      throw error;
+
+      // An agent that fails its turn is a RESULT, not a transport failure.
+      // Answering with a JSON-RPC error leaves clients that do not treat one as
+      // a turn outcome waiting forever on a turn that already ended — observed
+      // against T3 Code, where a denied `run_command` hung the thread on
+      // "Working" indefinitely. Report it as a refusal and say why in the
+      // transcript, so the turn closes and the user can see the reason.
+      const detail = String(error?.message ?? error);
+      options.onError?.(error, "session/prompt");
+      emitAgentText(sessionId, `\n[agent failed: ${detail}]\n`);
+      return { stopReason: "refusal" };
     } finally {
       session.abort = null;
     }
