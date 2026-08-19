@@ -90,7 +90,9 @@ export async function startBridge(options = {}) {
         onTool: emitTool,
       });
       runtime.started = true;
-      return { stopReason: outcome.stopReason ?? "end_turn", text: outcome.text };
+      // ACP defines the stop-reason vocabulary; a completed run is end_turn
+      // regardless of what the agent calls it.
+      return { stopReason: "end_turn", text: outcome.text };
     },
   });
 
@@ -115,7 +117,8 @@ function runProcess(adapter, args, { cwd, signal, onText, onTool }) {
     let out = "";
     let err = "";
     let pending = "";
-    let stopReason;
+    let agentStatus;
+    let ok = true;
 
     const onAbort = () => child.kill("SIGTERM");
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -136,7 +139,8 @@ function runProcess(adapter, args, { cwd, signal, onText, onTool }) {
         // The result carries the whole answer; text deltas already streamed it,
         // so keep it only when nothing streamed.
         if (!out) out = record.text ?? "";
-        stopReason = record.stopReason;
+        agentStatus = record.agentStatus;
+        ok = record.ok !== false;
       }
     };
 
@@ -174,7 +178,12 @@ function runProcess(adapter, args, { cwd, signal, onText, onTool }) {
       if (adapter.parseLine && pending.trim()) {
         handleRecord(adapter.parseLine(pending.trim()));
       }
-      resolve({ text: out, stopReason });
+      if (!ok) {
+        return reject(
+          new Error(`${adapter.command} reported ${agentStatus ?? "a failure"}`),
+        );
+      }
+      resolve({ text: out, agentStatus });
     });
   });
 }

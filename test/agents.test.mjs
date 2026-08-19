@@ -61,7 +61,7 @@ test("the ACTIVE and DONE halves of one call share an id", () => {
   assert.equal(done.status, "completed");
 });
 
-test("the result reports success and stop reason", () => {
+test("the result reports success and keeps the agent's own status", () => {
   const record = parseAgyLine(
     JSON.stringify({
       event: "result",
@@ -70,8 +70,27 @@ test("the result reports success and stop reason", () => {
   );
   assert.equal(record.kind, "result");
   assert.equal(record.ok, true);
-  assert.equal(record.stopReason, "success");
   assert.equal(record.text, "done\n");
+  assert.equal(record.agentStatus, "SUCCESS");
+});
+
+test("the agent's status is never presented as an ACP stop reason", () => {
+  // ACP accepts only these; forwarding "success" leaves a validating client
+  // waiting forever on a prompt that already finished.
+  const ACP_STOP_REASONS = new Set([
+    "end_turn",
+    "cancelled",
+    "max_tokens",
+    "max_turn_requests",
+    "refusal",
+  ]);
+  for (const status of ["SUCCESS", "ERROR", "CANCELLED"]) {
+    const record = parseAgyLine(
+      JSON.stringify({ event: "result", result: { status, response: "" } }),
+    );
+    assert.equal(record.stopReason, undefined, "must not claim an ACP stop reason");
+    assert.equal(ACP_STOP_REASONS.has(record.agentStatus), false);
+  }
 });
 
 test("a non-success result is not reported as ok", () => {

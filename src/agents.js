@@ -87,7 +87,11 @@ export function parseAgyLine(line) {
       kind: "result",
       ok: result.status === "SUCCESS",
       text: typeof result.response === "string" ? result.response : "",
-      ...(result.status ? { stopReason: String(result.status).toLowerCase() } : {}),
+      // The agent's own vocabulary, kept for logs. It is NOT an ACP stop
+      // reason and must not be forwarded as one — ACP accepts only end_turn,
+      // cancelled, max_tokens, max_turn_requests and refusal, and a client
+      // that validates will reject anything else, leaving the turn unsettled.
+      ...(result.status ? { agentStatus: String(result.status) } : {}),
       ...(result.usage ? { usage: result.usage } : {}),
     };
   }
