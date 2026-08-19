@@ -55,3 +55,9 @@ test("two-character escapes are removed", () => {
   const raw = `before${ESC}Mafter`;
   assert.equal(stripAnsi(raw), "beforeafter");
 });
+
+test("fragments of animated words are dropped, real words are not", () => {
+  // Redraws shred "Generating..." into pieces; a colour is not a piece of it.
+  const raw = "enerat\nrating\nting..\nRed\nGreen\nBlue\nGemini 3.7 Flash · high";
+  assert.equal(extractAnswer(raw, { fromWorkingMarker: false }), "Red\nGreen\nBlue");
+});

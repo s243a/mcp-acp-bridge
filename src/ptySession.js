@@ -22,6 +22,17 @@ import pty from "node-pty";
 const WORKING_MARKER = "esc to cancel";
 const IDLE_MARKER = "? for shortcuts";
 
+/**
+ * Words the TUI animates, which redraws shred into fragments like "enerat" or
+ * "ting..". Any contiguous piece of one is chrome, not content.
+ */
+const ANIMATED_WORDS = ["Generating...", "Signing in...", "Verifying..."];
+
+function isAnimationFragment(line) {
+  if (line.length < 2 || line.length > 16) return false;
+  return ANIMATED_WORDS.some((word) => word.includes(line));
+}
+
 /** Terminal chrome that is never part of an answer. */
 const CHROME = [
   /^[\s⣾⣷⣯⣟⡿⢿⣻⣽]*$/u,
@@ -32,6 +43,8 @@ const CHROME = [
   /^└\s*Tip:/u,
   /Generating\.\.\./u,
   /^[▄▀\s]+/u,
+  // The status line: model name and reasoning effort.
+  /^Gemini\s.*·\s*(high|medium|low)/iu,
 ];
 
 const ESC = "\u001b";
@@ -79,6 +92,7 @@ export function extractAnswer(raw, { fromWorkingMarker = true } = {}) {
     const trimmed = line.replace(/\r/g, "").trim();
     if (!trimmed) continue;
     if (CHROME.some((pattern) => pattern.test(trimmed))) continue;
+    if (isAnimationFragment(trimmed)) continue;
     // Redraws repeat lines verbatim; keep the first sighting only.
     if (seen.has(trimmed)) continue;
     seen.add(trimmed);
@@ -96,6 +110,7 @@ export function createPtySession({
   log = () => {},
   startupTimeoutMs = 60_000,
   turnTimeoutMs = 600_000,
+  settleMs = 2_500,
 }) {
   let child = null;
   let buffer = "";
@@ -103,6 +118,7 @@ export function createPtySession({
   const queue = [];
   let ready = false;
   let readyWaiters = [];
+  let settleTimer = null;
 
   function start() {
     if (child) return;
@@ -119,11 +135,20 @@ export function createPtySession({
       buffer += data;
       const plain = stripAnsi(buffer);
 
-      if (!ready && plain.includes(IDLE_MARKER)) {
-        ready = true;
-        buffer = "";
-        log("[pty] agent ready");
-        readyWaiters.splice(0).forEach((resolve) => resolve());
+      if (!ready) {
+        // The prompt renders before sign-in finishes, so the idle marker alone
+        // is not readiness. Submitting during sign-in gets the turn answered
+        // with "verifying your account eligibility" instead of a response.
+        // Wait for the marker AND for output to stop changing.
+        if (!plain.includes(IDLE_MARKER) || settleTimer) return;
+        // A fixed grace period from the first sighting, not a quiet period:
+        // the status line animates continuously, so output never goes silent.
+        settleTimer = setTimeout(() => {
+          ready = true;
+          buffer = "";
+          log("[pty] agent ready");
+          readyWaiters.splice(0).forEach((resolve) => resolve());
+        }, settleMs);
         return;
       }
       if (!active) return;
