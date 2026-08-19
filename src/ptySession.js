@@ -132,6 +132,7 @@ export function createPtySession({
     });
 
     child.onData((data) => {
+      if (process.env.BRIDGE_PTY_DEBUG) process.stderr.write(data);
       buffer += data;
       const plain = stripAnsi(buffer);
 
@@ -208,6 +209,13 @@ export function createPtySession({
   }
 
   return {
+    /**
+     * Launch without a typed turn. Callers that deliver the first prompt as a
+     * command-line argument need the process running with nothing queued.
+     */
+    start() {
+      start();
+    },
     prompt(text, { signal } = {}) {
       return new Promise((resolve, reject) => {
         const turn = { prompt: text, output: "", sawWorking: false, resolve, reject, timer: null };

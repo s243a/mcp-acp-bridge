@@ -195,8 +195,13 @@ export const adapters = {
     nudge: "Call the next_task tool to get your task, carry it out, then call submit_result with your full answer.",
     mcpViaWorkspaceFile: true,
     deniesViaAgentHome: true,
-    buildSessionArgs({ cwd }) {
-      return ["--add-dir", cwd];
+    buildSessionArgs({ cwd, initialPrompt }) {
+      // -i runs the prompt then stays interactive, so the first turn never has
+      // to be typed — which removes the echo the terminal would otherwise
+      // reflow and shred.
+      const args = ["--add-dir", cwd];
+      if (initialPrompt) args.push("-i", initialPrompt);
+      return args;
     },
   },
 

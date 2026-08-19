@@ -115,6 +115,38 @@ continue, plain-text stdout. Whether its built-in tools can be restricted to
 MCP-provided ones is **unverified** and worth establishing early — it decides
 whether the hardening below is available for it.
 
+## Dual mode: MCP for turns, terminal for steering
+
+`agy-dual` runs agy under a PTY, but the turn itself never touches the screen.
+The bridge queues the task, agy calls `next_task` to collect it and
+`submit_result` to answer, and the terminal is left carrying only steering:
+ESC to cancel, slash commands to change model. The screen is deliberately kept
+out of the transcript — it renders answers as a redrawing frame with spinner
+frames interleaved, which arrives shredded, while the submitted result is exact.
+
+Four things about agy have to line up for this to work, each verified on 1.1.14:
+
+1. **The endpoint goes in the shared config, as `serverUrl`.** Interactive agy
+   reads `~/.gemini/config/mcp_config.json`; the `mcpServers` key in a
+   workspace's `.gemini/settings.json` is honoured only by the stream-json path.
+   It does support remote servers over HTTP — an earlier reading of a failed
+   probe as "interactive agy is stdio-only" was wrong, and a stdio proxy written
+   to work around it was deleted once `/mcp` showed the server connected.
+2. **`/mcp` is the ground truth for registration.** It distinguishes a server
+   that connected but exposes nothing from one that never connected, which
+   inferring from the agent's prose does not. A connected server with no
+   `Tools:` line is a bridge with no tools registered, not a transport problem.
+3. **MCP calls need a standing allow rule.** Otherwise agy prompts
+   `Do you want to proceed?` and blocks forever, since nothing on our side of
+   the terminal answers it. Rules take the form `mcp(<server>/<tool>)`, matching
+   agy's own built-in `mcp(chrome-devtools/*)`, and go in the session HOME's
+   `settings.json`. They apply in interactive mode only: headless auto-denies
+   and says so.
+4. **The first turn rides in argv.** `-i <prompt>` runs a prompt and stays
+   interactive, so the opening nudge is never typed — no echo to unpick, and no
+   dependence on correctly detecting readiness. Because agy then asks for its
+   task moments after spawn, the task must be queued before the process starts.
+
 ## Planned hardening: built-ins through MCP
 
 Disabling an agent's built-in file and shell tools and supplying equivalents as

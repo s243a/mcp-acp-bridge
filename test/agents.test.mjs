@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseAgyLine } from "../src/agents.js";
+import { getAdapter, parseAgyLine } from "../src/agents.js";
 
 test("assistant text becomes a text record", () => {
   const record = parseAgyLine(
@@ -106,5 +106,15 @@ test("unparseable and unknown lines are dropped, never guessed at", () => {
   assert.equal(
     parseAgyLine(JSON.stringify({ event: "step_update", step_update: { step_type: "checkpoint" } })),
     null,
+  );
+});
+
+test("an initial prompt rides in argv so the first turn is never typed", () => {
+  const dual = getAdapter("agy-dual");
+  assert.deepEqual(dual.buildSessionArgs({ cwd: "/w" }), ["--add-dir", "/w"]);
+  assert.deepEqual(
+    dual.buildSessionArgs({ cwd: "/w", initialPrompt: "go" }),
+    ["--add-dir", "/w", "-i", "go"],
+    "-i runs the prompt and keeps the session interactive",
   );
 });

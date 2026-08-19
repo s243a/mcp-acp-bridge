@@ -91,9 +91,12 @@ export async function startBridge(options = {}) {
             trustedWorkspaces: [runtime.cwd ?? cwd],
             // Interactive agy reads MCP servers from the shared config, not the
             // workspace file, so a PTY session needs it registered there too.
-            ...(adapter.pty
-              ? { mcpServers: { "mcp-acp-bridge": { url, type: "http", trust: true } } }
-              : {}),
+            // Interactive agy reads the shared config, and wants `serverUrl` —
+            // the legacy `url`/`type` pair registers as a server with no tools.
+            ...(adapter.pty ? { mcpServers: { "mcp-acp-bridge": { serverUrl: url } } } : {}),
+            // The task channel is transport, not work: prompting for it would
+            // stall the turn before the agent ever sees its instructions.
+            ...(adapter.turnsOverMcp ? { allowRules: ["mcp(mcp-acp-bridge/*)"] } : {}),
             log,
           });
         }
@@ -130,25 +133,40 @@ export async function startBridge(options = {}) {
       // A terminal-driven agent: steerable, at the cost of prose arriving as a
       // redrawing screen rather than as deltas.
       if (adapter.pty) {
+        // Queue the turn before the agent exists: the first nudge rides in argv,
+        // so the agent can ask for its task moments after spawn.
+        const answered = taskChannel ? taskChannel.runTurn(sessionId, prompt, { signal }) : null;
+        const launching = !runtime.agent;
         runtime.agent ??= createPtySession({
           command: adapter.command,
-          args: adapter.buildSessionArgs({ cwd: runtime.cwd ?? cwd }),
+          args: adapter.buildSessionArgs({
+            cwd: runtime.cwd ?? cwd,
+            ...(taskChannel ? { initialPrompt: adapter.nudge } : {}),
+          }),
           cwd: runtime.cwd ?? cwd,
           ...(runtime.home ? { env: { HOME: runtime.home.dir } } : {}),
-          onText: emitText,
+          // When answers come over MCP the terminal carries only the echoed
+          // nudge and spinner frames, which a redrawing screen shreds. The
+          // submitted result is the answer, so the screen stays out of the
+          // transcript.
+          ...(taskChannel ? {} : { onText: emitText }),
           log,
         });
-        if (taskChannel) {
-          // Queue the turn first: the nudge tells the agent to come and get it,
-          // so the task must already be waiting when it asks.
-          const answered = taskChannel.runTurn(sessionId, prompt, { signal });
-          await runtime.agent.prompt(adapter.nudge, { signal }).catch((error) => {
-            // The nudge completing is not the turn completing; a terminal that
-            // misreads its own screen must not fail a turn the agent may still
-            // be working on.
-            log(`[agent] nudge returned: ${error?.message ?? "ok"}`);
-          });
+        if (answered) {
+          // A launching session already carries the nudge; only later turns have
+          // to be typed, which is also the only time readiness has to be right.
+          if (launching) {
+            runtime.agent.start();
+          } else {
+            await runtime.agent.prompt(adapter.nudge, { signal }).catch((error) => {
+              // The nudge completing is not the turn completing; a terminal that
+              // misreads its own screen must not fail a turn the agent may still
+              // be working on.
+              log(`[agent] nudge returned: ${error?.message ?? "ok"}`);
+            });
+          }
           const outcome = await answered;
+          if (outcome.text) emitText(outcome.text);
           runtime.started = true;
           return { stopReason: "end_turn", text: outcome.text };
         }

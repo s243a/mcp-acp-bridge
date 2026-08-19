@@ -72,6 +72,7 @@ export function prepareAgentHome({
   denyPaths = defaultDenyPaths(realHome),
   trustedWorkspaces = [],
   mcpServers = null,
+  allowRules = [],
   extraSettings = {},
   log = () => {},
 } = {}) {
@@ -105,6 +106,13 @@ export function prepareAgentHome({
       : {}),
     permissions: {
       ...(extraSettings.permissions ?? {}),
+      // Interactive agy prompts for every MCP call and blocks until answered,
+      // which nothing on our side can do. Rules take the form
+      // `mcp(<server>/<tool>)`, matching agy's own `mcp(chrome-devtools/*)`.
+      // These apply in interactive mode only: headless auto-denies instead.
+      ...(allowRules.length || extraSettings.permissions?.allow
+        ? { allow: [...allowRules, ...(extraSettings.permissions?.allow ?? [])] }
+        : {}),
       deny: [...buildDenyRules(denyPaths), ...(extraSettings.permissions?.deny ?? [])],
     },
   };

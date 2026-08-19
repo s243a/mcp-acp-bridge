@@ -65,3 +65,30 @@ test("no agy config to mirror means no override, not a broken environment", () =
   const empty = mkdtempSync(join(tmpdir(), "no-agy-"));
   assert.equal(prepareAgentHome({ realHome: empty }), null);
 });
+
+test("allow rules are written so MCP transport never waits on a prompt", () => {
+  const home = fakeHome();
+  const session = prepareAgentHome({
+    realHome: home,
+    denyPaths: [],
+    allowRules: ["mcp(mcp-acp-bridge/*)"],
+  });
+
+  const generated = JSON.parse(
+    readFileSync(join(session.dir, ".gemini", "antigravity-cli", "settings.json"), "utf8"),
+  );
+  // Interactive agy blocks on an unanswered permission prompt, and nothing on
+  // our side of the terminal can answer it.
+  assert.deepEqual(generated.permissions.allow, ["mcp(mcp-acp-bridge/*)"]);
+  session.release();
+});
+
+test("no allow rules leaves the key absent rather than empty", () => {
+  const home = fakeHome();
+  const session = prepareAgentHome({ realHome: home, denyPaths: [] });
+  const generated = JSON.parse(
+    readFileSync(join(session.dir, ".gemini", "antigravity-cli", "settings.json"), "utf8"),
+  );
+  assert.equal("allow" in generated.permissions, false);
+  session.release();
+});
