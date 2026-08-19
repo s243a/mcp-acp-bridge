@@ -41,9 +41,9 @@ export async function startBridge(options = {}) {
 
   // Policy first, human second: allow and deny never reach a person, so a
   // subagent's forty reads do not become forty prompts.
-  const policy = makePolicy(options.policy, { log });
+  const defaultPolicy = makePolicy(options.policy, { log });
   const gate = makeGate(
-    withPolicy(policy, (call) => acp.decide(call), {
+    withPolicy((call) => runtimes.get(call.sessionId)?.policy ?? defaultPolicy, (call) => acp.decide(call), {
       onDecision: ({ tool, verdict, reason }) => log(`[policy] ${verdict} ${tool} (${reason})`),
     }),
     { timeoutMs: options.timeoutMs },
@@ -65,13 +65,20 @@ export async function startBridge(options = {}) {
     createSession: () => {
       const session = gateway.openSession();
       const url = server.url(session.token);
-      const runtime = { token: session.token, url, started: false };
+      const runtime = { token: session.token, url, started: false, policy: defaultPolicy };
       // Agents without an MCP flag find the endpoint through the workspace.
       if (adapter.mcpViaWorkspaceFile) {
         runtime.workspace = registerWorkspaceMcp({ workspace: cwd, url, log });
       }
       runtimes.set(session.sessionId, runtime);
       return { sessionId: session.sessionId };
+    },
+
+    onConfigOption: ({ sessionId, configId, value }) => {
+      const runtime = runtimes.get(sessionId);
+      if (!runtime || configId !== "review") return;
+      runtime.policy = makePolicy(String(value), { log });
+      log(`[policy] session ${sessionId} review set to ${value}`);
     },
 
     onSessionEnd: (sessionId) => {
@@ -135,7 +142,7 @@ export async function startBridge(options = {}) {
     acp,
     gateway,
     port: server.port,
-    policy,
+    policy: defaultPolicy,
     async close() {
       // Sessions may still hold a workspace registration; leaving one behind
       // would put a stale endpoint in someone's project.

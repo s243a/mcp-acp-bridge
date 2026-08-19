@@ -93,3 +93,21 @@ test("withPolicy denies without asking, and the reason survives", async () => {
   assert.equal(decision.allow, false);
   assert.equal(decision.reason, "never");
 });
+
+test("a resolver lets each session carry its own policy", async () => {
+  const perSession = { a: makePolicy("allow-all"), b: makePolicy("review-everything") };
+  let asked = 0;
+  const gated = withPolicy(
+    (call) => perSession[call.sessionId],
+    async () => {
+      asked += 1;
+      return { allow: true };
+    },
+  );
+
+  assert.equal((await gated({ sessionId: "a", tool: "run_command" })).allow, true);
+  assert.equal(asked, 0, "session a allows without asking");
+
+  await gated({ sessionId: "b", tool: "run_command" });
+  assert.equal(asked, 1, "session b still asks");
+});

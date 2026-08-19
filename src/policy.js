@@ -103,9 +103,14 @@ export function makePolicy(source, options = {}) {
  * `allow` and `deny` never reach the human — that is the entire point — while
  * `ask` defers to the underlying decider, which is what raises the ACP request.
  */
-export function withPolicy(policy, decide, { onDecision } = {}) {
+export function withPolicy(policyOrResolver, decide, { onDecision } = {}) {
+  // A resolver lets each session carry its own policy, which is what makes the
+  // review setting changeable per turn rather than fixed at startup.
+  const resolve =
+    typeof policyOrResolver === "function" ? policyOrResolver : () => policyOrResolver;
+
   return async function policyAwareDecide(call) {
-    const { verdict, reason } = policy.decide(call);
+    const { verdict, reason } = resolve(call).decide(call);
     if (verdict === "allow") {
       onDecision?.({ ...call, verdict, reason });
       return { allow: true, reason };

@@ -127,6 +127,18 @@ export function createAcpServer(options) {
     }
   });
 
+  // Clients change per-turn settings through config options; the bridge treats
+  // an unknown option as a no-op rather than an error, so a client offering more
+  // pickers than this agent understands still works.
+  peer.on("session/set_config_option", async (params) => {
+    options.onConfigOption?.({
+      sessionId: params?.sessionId,
+      configId: params?.configId,
+      value: params?.value,
+    });
+    return {};
+  });
+
   peer.on("session/cancel", (params) => {
     sessions.get(params?.sessionId)?.abort?.abort();
   });
