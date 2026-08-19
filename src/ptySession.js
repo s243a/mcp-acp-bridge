@@ -111,6 +111,7 @@ export function createPtySession({
   startupTimeoutMs = 60_000,
   turnTimeoutMs = 600_000,
   settleMs = 2_500,
+  cancelSettleMs = 1_500,
 }) {
   let child = null;
   let buffer = "";
@@ -223,10 +224,21 @@ export function createPtySession({
           "abort",
           () => {
             // The point of this transport: stop the turn, keep the session.
+            // Retiring the turn is what keeps the session usable — a cancelled
+            // turn left active blocks every later one behind it forever.
             if (active === turn) {
               log("[pty] sending ESC to cancel");
               child?.write(ESC);
+              clearTimeout(turn.timer);
+              active = null;
+              reject(new Error("cancelled"));
+              // agy needs a beat to unwind back to its prompt; pumping into a
+              // still-working screen would type the next turn into the void.
+              setTimeout(pump, cancelSettleMs);
+              return;
             }
+            const queued = queue.indexOf(turn);
+            if (queued !== -1) queue.splice(queued, 1);
             reject(new Error("cancelled"));
           },
           { once: true },
