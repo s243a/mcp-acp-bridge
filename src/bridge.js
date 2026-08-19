@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
 import { createAgentSession } from "./agentSession.js";
+import { registerWorkspaceMcp } from "./workspaceConfig.js";
 import { getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
 
@@ -52,11 +53,13 @@ export async function startBridge(options = {}) {
 
     createSession: () => {
       const session = gateway.openSession();
-      runtimes.set(session.sessionId, {
-        token: session.token,
-        url: server.url(session.token),
-        started: false,
-      });
+      const url = server.url(session.token);
+      const runtime = { token: session.token, url, started: false };
+      // Agents without an MCP flag find the endpoint through the workspace.
+      if (adapter.mcpViaWorkspaceFile) {
+        runtime.workspace = registerWorkspaceMcp({ workspace: cwd, url, log });
+      }
+      runtimes.set(session.sessionId, runtime);
       return { sessionId: session.sessionId };
     },
 
@@ -64,6 +67,7 @@ export async function startBridge(options = {}) {
       const runtime = runtimes.get(sessionId);
       if (runtime) {
         runtime.agent?.stop();
+        runtime.workspace?.release();
         gateway.closeSession(runtime.token);
       }
       runtimes.delete(sessionId);
@@ -81,6 +85,7 @@ export async function startBridge(options = {}) {
           cwd,
           onText: emitText,
           onTool: emitTool,
+          skipAgentPermissions: options.skipAgentPermissions === true,
           log,
         });
         const outcome = await runtime.agent.prompt(prompt, { signal });

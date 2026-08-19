@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mcp-acp-bridge": {
+      "url": "http://127.0.0.1:44535/mcp/mPZTrsx-hDRQcC8VkWIyHjmc3O8cnpD-",
+      "type": "http",
+      "trust": true
+    }
+  }
+}

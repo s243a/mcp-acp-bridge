@@ -12,7 +12,15 @@
  */
 import { spawn } from "node:child_process";
 
-export function createAgentSession({ adapter, cwd, env, onText, onTool, log = () => {} }) {
+export function createAgentSession({
+  adapter,
+  cwd,
+  env,
+  onText,
+  onTool,
+  skipAgentPermissions = false,
+  log = () => {},
+}) {
   let child = null;
   let pending = "";
   /** Resolver for the turn currently in flight. */
@@ -23,7 +31,7 @@ export function createAgentSession({ adapter, cwd, env, onText, onTool, log = ()
 
   function start() {
     if (child) return;
-    const args = adapter.buildSessionArgs({ cwd });
+    const args = adapter.buildSessionArgs({ cwd, skipAgentPermissions });
     log(`[agent] starting persistent ${adapter.command}`);
     child = spawn(adapter.command, args, {
       cwd,

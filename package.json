@@ -11,7 +11,8 @@
     "test:live": "node test/live-claude.mjs",
     "test:bridge": "node test/live-bridge.mjs",
     "test:agy": "node test/live-agy.mjs",
-    "test:agy:multi": "node test/live-agy-multiturn.mjs"
+    "test:agy:multi": "node test/live-agy-multiturn.mjs",
+    "test:agy:mcp": "node test/live-agy-mcp.mjs"
   },
   "repository": {
     "type": "git",

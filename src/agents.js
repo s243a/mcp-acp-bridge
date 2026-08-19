@@ -59,8 +59,25 @@ export const adapters = {
     // answers stream back on stdout, so startup and context are paid once
     // instead of per turn.
     persistent: true,
-    buildSessionArgs({ cwd }) {
-      return ["--add-dir", cwd, "--input-format", "stream-json", "--output-format", "stream-json"];
+    // No MCP flag exists; servers are read from <workspace>/.gemini/settings.json,
+    // so the bridge registers its endpoint there for the life of the session.
+    mcpViaWorkspaceFile: true,
+    buildSessionArgs({ cwd, skipAgentPermissions }) {
+      const args = [
+        "--add-dir",
+        cwd,
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+      ];
+      // Headless agy cannot prompt, so it auto-denies anything needing
+      // permission — including reaching an MCP server. Skipping its prompts
+      // hands the decision to whoever gates the MCP channel instead of leaving
+      // every tool dead. It does NOT gate agy's built-in tools, which then run
+      // unsupervised: that is the trade, and why this is off by default.
+      if (skipAgentPermissions) args.push("--dangerously-skip-permissions");
+      return args;
     },
     encodeTurn(text) {
       return JSON.stringify({
