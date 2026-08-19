@@ -33,6 +33,11 @@ function parseArgs(argv) {
       case "--timeout-ms":
         options.timeoutMs = Number(argv[++i]);
         break;
+      case "--workspace-mode":
+        // isolated: an empty directory holding only the MCP registration.
+        // project: the real directory, with prompt-free reads and writes there.
+        options.workspaceMode = argv[++i];
+        break;
       case "--policy":
         // A preset name, or a path to a JSON file holding {rules, default}.
         options.policy = argv[++i];
@@ -108,7 +113,8 @@ try {
     agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
     cwd: options.cwd ?? process.cwd(),
     timeoutMs: options.timeoutMs,
-    policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),
+      policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),
+    workspaceMode: options.workspaceMode ?? process.env.BRIDGE_WORKSPACE_MODE,
     skipAgentPermissions:
       options.skipAgentPermissions === true || process.env.BRIDGE_SKIP_AGENT_PERMISSIONS === "1",
     log,

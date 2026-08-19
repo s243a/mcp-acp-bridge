@@ -88,10 +88,11 @@ export const adapters = {
    *
    * Headless agy auto-denies anything needing permission, which makes shell
    * commands and even MCP unreachable. Skipping its prompts restores them and
-   * leans on `--sandbox` for terminal restrictions instead of a human.
+   * leans on `--sandbox` instead of a human.
    *
-   * Built-in tools are therefore NOT reviewed — the sandbox is the only thing
-   * between the agent and the machine. Bridge-provided tools are still gated.
+   * Read agy's own wording carefully: --sandbox enables "terminal restrictions".
+   * It governs shell commands, and in testing did NOT stop file reads outside
+   * the workspace. Built-in tools are unreviewed here; bridge tools stay gated.
    */
   "agy-sandboxed": {
     name: "agy-sandboxed",
@@ -119,10 +120,14 @@ export const adapters = {
    * agy whose consequential work goes through the bridge, where policy decides
    * and a human can be asked.
    *
-   * Honest limitation: agy's built-in tools cannot be turned off, so this adds
-   * a gated path rather than replacing the ungated one. It is the right profile
-   * when the task is meant to run through bridge-provided tools and you want
-   * those reviewed.
+   * Runs in an isolated workspace by default — an empty directory holding only
+   * the MCP registration — so the reviewed MCP tools are the obvious way to work
+   * and the project directory is not casually in reach.
+   *
+   * Not a sandbox. agy can still read outside its workspace by absolute path
+   * (verified on 1.1.13, with and without --sandbox), so treat this as shaping
+   * behaviour, not as confining it. Real confinement needs an OS-level boundary
+   * — a container or namespace — around the whole agent process.
    */
   "agy-gated": {
     name: "agy-gated",
@@ -130,6 +135,10 @@ export const adapters = {
     restrictToMcp: false,
     persistent: true,
     mcpViaWorkspaceFile: true,
+    // An empty workspace makes gated MCP tools the path of least resistance.
+    // It is NOT confinement: agy read a file outside its workspace by absolute
+    // path in testing, with and without --sandbox.
+    defaultWorkspaceMode: "isolated",
     buildSessionArgs({ cwd }) {
       return [
         "--add-dir",

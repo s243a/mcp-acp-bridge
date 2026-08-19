@@ -17,13 +17,14 @@ import { createPeer } from "../src/jsonRpc.js";
 import { mcpSettingsPath } from "../src/workspaceConfig.js";
 
 const mode = process.argv[2] === "deny" ? "deny" : "allow";
+const agent = process.env.BRIDGE_TEST_AGENT ?? "agy";
 const workspace = mkdtempSync(join(tmpdir(), "agy-mcp-"));
 
 const toBridge = new PassThrough();
 const toClient = new PassThrough();
 
 const bridge = await startBridge({
-  agent: "agy",
+  agent,
   cwd: workspace,
   skipAgentPermissions: true,
   input: toBridge,
@@ -58,7 +59,8 @@ await client.request("initialize", { protocolVersion: 1 });
 const { sessionId } = await client.request("session/new", { cwd: workspace });
 
 const settings = mcpSettingsPath(workspace);
-console.log(`[test] workspace ${workspace}`);
+console.log(`[test] agent ${agent}`);
+console.log(`[test] project dir ${workspace}`);
 console.log(`[test] settings written: ${existsSync(settings)}`);
 if (existsSync(settings)) console.log(readFileSync(settings, "utf8").trim());
 

@@ -6,7 +6,14 @@
  * is not ours, and leave nothing behind on release.
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -15,6 +22,7 @@ import {
   BRIDGE_SERVER_KEY,
   mcpSettingsPath,
   mergeBridgeServer,
+  prepareWorkspace,
   registerWorkspaceMcp,
   removeBridgeServer,
 } from "../src/workspaceConfig.js";
@@ -76,5 +84,40 @@ test("release is idempotent", () => {
   const handle = registerWorkspaceMcp({ workspace: dir, url: "u" });
   handle.release();
   handle.release();
+  assert.equal(existsSync(mcpSettingsPath(dir)), false);
+});
+
+test("an isolated workspace is empty apart from the registration and guidance", () => {
+  const prepared = prepareWorkspace({
+    mode: "isolated",
+    projectDir: "/should/not/be/touched",
+    url: "http://127.0.0.1:9/mcp/tok",
+    toolNames: ["magic_word"],
+  });
+
+  // Nothing of the caller's directory leaks in — that is the containment.
+  assert.notEqual(prepared.dir, "/should/not/be/touched");
+  assert.deepEqual(readdirSync(prepared.dir).sort(), [".gemini", "AGENTS.md"]);
+
+  const guidance = readFileSync(join(prepared.dir, "AGENTS.md"), "utf8");
+  assert.match(guidance, /intentionally empty/i, "the agent must know this is deliberate");
+  assert.match(guidance, /magic_word/, "the tools it does have must be named");
+
+  prepared.release();
+  assert.equal(existsSync(prepared.dir), false, "an isolated workspace must not outlive its session");
+});
+
+test("project mode uses the caller's directory and leaves no guidance behind", () => {
+  const dir = workspace();
+  const prepared = prepareWorkspace({ mode: "project", projectDir: dir, url: "u" });
+
+  assert.equal(prepared.dir, dir);
+  assert.equal(
+    existsSync(join(dir, "AGENTS.md")),
+    false,
+    "a project may have its own instructions; overwriting them would be worse than silence",
+  );
+
+  prepared.release();
   assert.equal(existsSync(mcpSettingsPath(dir)), false);
 });

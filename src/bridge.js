@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
 import { createAgentSession } from "./agentSession.js";
-import { registerWorkspaceMcp } from "./workspaceConfig.js";
+import { prepareWorkspace } from "./workspaceConfig.js";
 import { getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
 import { makePolicy, withPolicy } from "./policy.js";
@@ -65,10 +65,20 @@ export async function startBridge(options = {}) {
     createSession: () => {
       const session = gateway.openSession();
       const url = server.url(session.token);
-      const runtime = { token: session.token, url, started: false, policy: defaultPolicy };
+      const runtime = { token: session.token, url, started: false, policy: defaultPolicy, cwd };
       // Agents without an MCP flag find the endpoint through the workspace.
       if (adapter.mcpViaWorkspaceFile) {
-        runtime.workspace = registerWorkspaceMcp({ workspace: cwd, url, log });
+        const prepared = prepareWorkspace({
+          mode: options.workspaceMode ?? adapter.defaultWorkspaceMode ?? "project",
+          projectDir: cwd,
+          url,
+          toolNames: (options.tools ?? []).map((tool) => tool.name),
+          log,
+        });
+        runtime.workspace = prepared;
+        // The agent runs where its tools can reach, which is not always the
+        // caller's directory.
+        runtime.cwd = prepared.dir;
       }
       runtimes.set(session.sessionId, runtime);
       return { sessionId: session.sessionId };
@@ -100,7 +110,7 @@ export async function startBridge(options = {}) {
       if (adapter.persistent) {
         runtime.agent ??= createAgentSession({
           adapter,
-          cwd,
+          cwd: runtime.cwd ?? cwd,
           onText: emitText,
           onTool: emitTool,
           skipAgentPermissions: options.skipAgentPermissions === true,
