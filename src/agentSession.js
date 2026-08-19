@@ -28,10 +28,23 @@ export function createAgentSession({
   /** Turns waiting for the agent to finish the current one. */
   const queue = [];
   let exitInfo = null;
+  /** Set from the agent's own events; what makes a cancelled turn recoverable. */
+  let conversationId = null;
+  /** Resolves when a killed process has fully exited. */
+  let exited = null;
+  /** True while a stop we asked for is in progress. */
+  let stopping = false;
+
+  let resolveExited = null;
 
   function start() {
     if (child) return;
-    const args = adapter.buildSessionArgs({ cwd, skipAgentPermissions });
+    const args = adapter.buildSessionArgs({
+      cwd,
+      skipAgentPermissions,
+      ...(conversationId ? { resumeConversationId: conversationId } : {}),
+    });
+    if (conversationId) log(`[agent] resuming conversation ${conversationId}`);
     log(`[agent] starting persistent ${adapter.command}`);
     child = spawn(adapter.command, args, {
       cwd,
@@ -57,13 +70,28 @@ export function createAgentSession({
     child.on("close", (code) => {
       exitInfo = code;
       child = null;
-      // An agent that dies mid-turn must not leave the caller waiting.
+      resolveExited?.();
+      if (stopping) {
+        // We asked for this. Queued turns are waiting to resume, not to fail.
+        stopping = false;
+        return;
+      }
+      // An agent that dies on its own must not leave the caller waiting.
       failAll(new Error(`${adapter.command} exited (${code}) with a turn in flight`));
     });
   }
 
   function handleRecord(record) {
-    if (!record || !active) return;
+    if (!record) return;
+    // Session identity arrives before any turn and must be kept regardless of
+    // whether one is in flight — it is the handle a cancelled session comes
+    // back on.
+    if (record.kind === "session") {
+      conversationId = record.conversationId;
+      return;
+    }
+    if (record.conversationId) conversationId = record.conversationId;
+    if (!active) return;
     switch (record.kind) {
       case "text":
         active.text += record.text;
@@ -76,7 +104,15 @@ export function createAgentSession({
         const turn = active;
         active = null;
         if (record.ok === false) {
-          turn.reject(new Error(`${adapter.command} reported ${record.agentStatus ?? "a failure"}`));
+          // Carry whatever the agent said with the failure; a bare status
+          // tells a user nothing about what went wrong.
+          const detail = (record.text ?? "").trim();
+          turn.reject(
+            new Error(
+              `${adapter.command} reported ${record.agentStatus ?? "a failure"}` +
+                (detail ? `: ${detail.slice(0, 300)}` : ""),
+            ),
+          );
         } else {
           turn.resolve({ text: turn.text || record.text || "", agentStatus: record.agentStatus });
         }
@@ -95,8 +131,34 @@ export function createAgentSession({
     for (const turn of waiting) turn.reject(error);
   }
 
-  /** Hand the next queued turn to the agent, if it is idle. */
-  function pump() {
+  /** Stop the process but keep the conversation id, so a turn can resume it. */
+  function stopProcess() {
+    queue.length = 0;
+    active = null;
+    if (!child) return;
+    // Deliberately no stdin.end(): for a stream-json agent that is "no more
+    // turns". Signal alone is what a resumable stop looks like.
+    stopping = true;
+    exited = new Promise((resolve) => {
+      resolveExited = resolve;
+    });
+    child.kill("SIGTERM");
+    child = null;
+  }
+
+  /**
+   * Hand the next queued turn to the agent, if it is idle.
+   *
+   * Waits for a previous process to finish exiting first: agy holds its
+   * conversation state while shutting down, and resuming into it before the old
+   * process is gone fails the turn outright.
+   */
+  async function pump() {
+    if (active || queue.length === 0) return;
+    if (exited) {
+      await exited;
+      exited = null;
+    }
     if (active || queue.length === 0) return;
     start();
     if (!child) return;
@@ -113,10 +175,11 @@ export function createAgentSession({
         signal?.addEventListener(
           "abort",
           () => {
-            // Interrupting the agent is not expressible on this channel, so a
-            // cancelled turn stops the process rather than pretending to steer
-            // it. A steerable transport is what the dual-channel profile is for.
-            if (active === turn) stop();
+            // SIGINT ends agy outright rather than interrupting a turn, so
+            // stopping means killing the process. The conversation id is kept,
+            // so the next turn resumes rather than starting over — "stop this
+            // turn", not "lose the conversation".
+            if (active === turn) stopProcess();
             reject(new Error("cancelled"));
           },
           { once: true },
@@ -126,17 +189,12 @@ export function createAgentSession({
       });
     },
     running: () => child !== null,
+    /** The conversation a resumed process would rejoin. */
+    conversationId: () => conversationId,
+    /** End the session for good; a later turn starts a fresh conversation. */
     stop() {
-      queue.length = 0;
-      active = null;
-      if (!child) return;
-      try {
-        child.stdin.end();
-      } catch {
-        /* already closed */
-      }
-      child.kill("SIGTERM");
-      child = null;
+      conversationId = null;
+      stopProcess();
     },
   };
 }

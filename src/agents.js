@@ -62,7 +62,7 @@ export const adapters = {
     // No MCP flag exists; servers are read from <workspace>/.gemini/settings.json,
     // so the bridge registers its endpoint there for the life of the session.
     mcpViaWorkspaceFile: true,
-    buildSessionArgs({ cwd, skipAgentPermissions }) {
+    buildSessionArgs({ cwd, skipAgentPermissions, resumeConversationId }) {
       const args = [
         "--add-dir",
         cwd,
@@ -71,6 +71,10 @@ export const adapters = {
         "--output-format",
         "stream-json",
       ];
+      // Cancelling a turn has to kill the process — SIGINT ends agy outright
+      // rather than interrupting a turn — so resuming by id is what turns
+      // "stop" into "stop this turn" instead of "lose the conversation".
+      if (resumeConversationId) args.push("--conversation", resumeConversationId);
       // Headless agy cannot prompt, so it auto-denies anything needing
       // permission — including reaching an MCP server. Skipping its prompts
       // hands the decision to whoever gates the MCP channel instead of leaving
@@ -103,8 +107,9 @@ export const adapters = {
     restrictToMcp: false,
     persistent: true,
     mcpViaWorkspaceFile: true,
-    buildSessionArgs({ cwd }) {
+    buildSessionArgs({ cwd, resumeConversationId }) {
       return [
+        ...(resumeConversationId ? ["--conversation", resumeConversationId] : []),
         "--add-dir",
         cwd,
         "--sandbox",
@@ -145,8 +150,9 @@ export const adapters = {
     // It is NOT confinement: agy read a file outside its workspace by absolute
     // path in testing, with and without --sandbox.
     defaultWorkspaceMode: "isolated",
-    buildSessionArgs({ cwd }) {
+    buildSessionArgs({ cwd, resumeConversationId }) {
       return [
+        ...(resumeConversationId ? ["--conversation", resumeConversationId] : []),
         "--add-dir",
         cwd,
         "--dangerously-skip-permissions",
@@ -204,10 +210,17 @@ export function parseAgyLine(line) {
     return null;
   }
 
+  if (message?.event === "init") {
+    // The id a cancelled session can be resumed with.
+    const conversationId = message.conversation_id ?? message.init?.conversation_id;
+    return conversationId ? { kind: "session", conversationId: String(conversationId) } : null;
+  }
+
   if (message?.event === "result") {
     const result = message.result ?? {};
     return {
       kind: "result",
+      ...(result.conversation_id ? { conversationId: String(result.conversation_id) } : {}),
       ok: result.status === "SUCCESS",
       text: typeof result.response === "string" ? result.response : "",
       // The agent's own vocabulary, kept for logs. It is NOT an ACP stop
