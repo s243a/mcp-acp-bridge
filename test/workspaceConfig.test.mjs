@@ -97,7 +97,9 @@ test("an isolated workspace is empty apart from the registration and guidance", 
 
   // Nothing of the caller's directory leaks in — that is the containment.
   assert.notEqual(prepared.dir, "/should/not/be/touched");
-  assert.deepEqual(readdirSync(prepared.dir).sort(), [".gemini", "AGENTS.md"]);
+  // .agents holds the MCP registration the current loader reads; .gemini the
+  // legacy one print mode still honours.
+  assert.deepEqual(readdirSync(prepared.dir).sort(), [".agents", ".gemini", "AGENTS.md"]);
 
   const guidance = readFileSync(join(prepared.dir, "AGENTS.md"), "utf8");
   assert.match(guidance, /intentionally empty/i, "the agent must know this is deliberate");

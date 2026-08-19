@@ -22,6 +22,29 @@ export function mcpSettingsPath(workspace) {
 }
 
 /**
+ * The documented per-workspace MCP source.
+ *
+ * Not `.gemini/settings.json` — that is the legacy Gemini CLI location, which
+ * print mode still honours but interactive mode ignores. This is the file the
+ * current loader reads, and it is what makes per-session isolation possible:
+ * one workspace per session, one endpoint per workspace.
+ */
+export function agentsMcpConfigPath(workspace) {
+  return join(workspace, ".agents", "mcp_config.json");
+}
+
+/**
+ * Build the dedicated config's server entry.
+ *
+ * The schema differs from the legacy one and the differences are silent
+ * failures rather than errors: remote servers use `serverUrl`, and there is no
+ * `type` or `trust` field.
+ */
+export function buildAgentsMcpConfig({ url, key = BRIDGE_SERVER_KEY }) {
+  return { mcpServers: { [key]: { serverUrl: url } } };
+}
+
+/**
  * Merge our server into an existing settings object without disturbing it.
  * Exported for tests: the merge is the part that must not lose a user's config.
  */
@@ -71,7 +94,30 @@ export function registerWorkspaceMcp({ workspace, url, key = BRIDGE_SERVER_KEY, 
   mkdirSync(dirname(path), { recursive: true });
   const merged = mergeBridgeServer(existedBefore ? readJson(path) : null, { url, key });
   writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
-  log(`[workspace] registered MCP endpoint in ${path}`);
+
+  // The dedicated file is what the current loader reads; the legacy one above is
+  // kept because print mode still honours it and that path is verified working.
+  const agentsPath = agentsMcpConfigPath(workspace);
+  const agentsExisted = existsSync(agentsPath);
+  const agentsOriginal = agentsExisted ? readFileSync(agentsPath, "utf8") : null;
+  mkdirSync(dirname(agentsPath), { recursive: true });
+  const agentsExisting = agentsExisted ? (readJson(agentsPath) ?? {}) : {};
+  writeFileSync(
+    agentsPath,
+    `${JSON.stringify(
+      {
+        ...agentsExisting,
+        mcpServers: {
+          ...(agentsExisting.mcpServers ?? {}),
+          ...buildAgentsMcpConfig({ url, key }).mcpServers,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  log(`[workspace] registered MCP endpoint in ${agentsPath}`);
 
   let released = false;
   return {
@@ -79,6 +125,12 @@ export function registerWorkspaceMcp({ workspace, url, key = BRIDGE_SERVER_KEY, 
       if (released) return;
       released = true;
       try {
+        // Restore the dedicated file first; it is the one that matters.
+        if (!agentsExisted) {
+          rmSync(agentsPath, { force: true });
+        } else if (agentsOriginal !== null) {
+          writeFileSync(agentsPath, agentsOriginal, "utf8");
+        }
         if (!existedBefore) {
           // We created it; leave no trace in the user's project.
           rmSync(path, { force: true });
