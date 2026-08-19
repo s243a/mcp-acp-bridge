@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
 import { createAgentSession } from "./agentSession.js";
+import { createPtySession } from "./ptySession.js";
 import { prepareAgentHome } from "./agentHome.js";
 import { prepareWorkspace } from "./workspaceConfig.js";
 import { getAdapter } from "./agents.js";
@@ -114,6 +115,22 @@ export async function startBridge(options = {}) {
     runTurn: async ({ sessionId, prompt, signal, emitText, emitTool }) => {
       const runtime = runtimes.get(sessionId);
       if (!runtime) throw new Error(`no runtime for session ${sessionId}`);
+
+      // A terminal-driven agent: steerable, at the cost of prose arriving as a
+      // redrawing screen rather than as deltas.
+      if (adapter.pty) {
+        runtime.agent ??= createPtySession({
+          command: adapter.command,
+          args: adapter.buildSessionArgs({ cwd: runtime.cwd ?? cwd }),
+          cwd: runtime.cwd ?? cwd,
+          ...(runtime.home ? { env: { HOME: runtime.home.dir } } : {}),
+          onText: emitText,
+          log,
+        });
+        const outcome = await runtime.agent.prompt(prompt, { signal });
+        runtime.started = true;
+        return { stopReason: "end_turn", text: outcome.text };
+      }
 
       // A persistent agent keeps one conversation for the whole ACP session,
       // so startup and context are paid once rather than per turn.

@@ -181,9 +181,19 @@ export const adapters = {
     name: "agy-dual",
     command: "agy",
     restrictToMcp: false,
-    unavailable:
-      "The dual-channel agy profile (PTY steering + MCP) is not implemented yet. Use 'agy', 'agy-sandboxed' or 'agy-gated'.",
+    // A terminal rather than a data stream: the only channel that can carry an
+    // interrupt or a slash command. Built-in tools stay available and
+    // unreviewed; MCP tools remain gated, because MCP is HTTP and unaffected by
+    // what occupies stdio.
+    pty: true,
+    mcpViaWorkspaceFile: true,
+    deniesViaAgentHome: true,
+    buildSessionArgs({ cwd }) {
+      return ["--add-dir", cwd];
+    },
   },
+
+
 };
 
 /** agy takes one NDJSON turn per line on stdin. */

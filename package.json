@@ -13,7 +13,8 @@
     "test:agy": "node test/live-agy.mjs",
     "test:agy:multi": "node test/live-agy-multiturn.mjs",
     "test:agy:mcp": "node test/live-agy-mcp.mjs",
-    "test:agy:cancel": "node test/live-agy-cancel.mjs"
+    "test:agy:cancel": "node test/live-agy-cancel.mjs",
+    "test:agy:dual": "node test/live-agy-dual.mjs"
   },
   "repository": {
     "type": "git",
@@ -28,7 +29,8 @@
   "homepage": "https://github.com/s243a/mcp-acp-bridge#readme",
   "type": "module",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "node-pty": "^1.1.0"
   },
   "bin": {
     "mcp-acp-bridge": "bin/bridge.js"
