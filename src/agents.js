@@ -95,6 +95,9 @@ export const adapters = {
    * the workspace. Built-in tools are unreviewed here; bridge tools stay gated.
    */
   "agy-sandboxed": {
+    // Deny rules hold even under --dangerously-skip-permissions, so a
+    // per-session HOME can protect credentials the skip would otherwise expose.
+    deniesViaAgentHome: true,
     name: "agy-sandboxed",
     command: "agy",
     restrictToMcp: false,
@@ -130,6 +133,9 @@ export const adapters = {
    * — a container or namespace — around the whole agent process.
    */
   "agy-gated": {
+    // Deny rules hold even under --dangerously-skip-permissions, so a
+    // per-session HOME can protect credentials the skip would otherwise expose.
+    deniesViaAgentHome: true,
     name: "agy-gated",
     command: "agy",
     restrictToMcp: false,

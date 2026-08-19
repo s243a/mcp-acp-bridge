@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
 import { createAgentSession } from "./agentSession.js";
+import { prepareAgentHome } from "./agentHome.js";
 import { prepareWorkspace } from "./workspaceConfig.js";
 import { getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
@@ -76,6 +77,14 @@ export async function startBridge(options = {}) {
           log,
         });
         runtime.workspace = prepared;
+        // Deny rules survive the permission skip, so protect the paths that
+        // would hurt most even though this is a denylist, not a jail.
+        if (adapter.deniesViaAgentHome && options.denyPaths !== false) {
+          runtime.home = prepareAgentHome({
+            ...(Array.isArray(options.denyPaths) ? { denyPaths: options.denyPaths } : {}),
+            log,
+          });
+        }
         // The agent runs where its tools can reach, which is not always the
         // caller's directory.
         runtime.cwd = prepared.dir;
@@ -96,6 +105,7 @@ export async function startBridge(options = {}) {
       if (runtime) {
         runtime.agent?.stop();
         runtime.workspace?.release();
+        runtime.home?.release();
         gateway.closeSession(runtime.token);
       }
       runtimes.delete(sessionId);
@@ -111,6 +121,7 @@ export async function startBridge(options = {}) {
         runtime.agent ??= createAgentSession({
           adapter,
           cwd: runtime.cwd ?? cwd,
+          ...(runtime.home ? { env: { HOME: runtime.home.dir } } : {}),
           onText: emitText,
           onTool: emitTool,
           skipAgentPermissions: options.skipAgentPermissions === true,
@@ -159,6 +170,7 @@ export async function startBridge(options = {}) {
       for (const runtime of runtimes.values()) {
         runtime.agent?.stop();
         runtime.workspace?.release();
+        runtime.home?.release();
       }
       runtimes.clear();
       await server.close();
