@@ -186,6 +186,13 @@ export const adapters = {
     // unreviewed; MCP tools remain gated, because MCP is HTTP and unaffected by
     // what occupies stdio.
     pty: true,
+    // The turn itself travels over MCP, not the terminal. Typing a prompt into a
+    // TUI and reading the answer back off a redrawing screen is the fragile part
+    // of this transport; next_task and submit_result remove both. The terminal
+    // then carries only the nudge, ESC, and slash commands.
+    turnsOverMcp: true,
+    /** One line, because the real instruction arrives over MCP. */
+    nudge: "Call the next_task tool to get your task, carry it out, then call submit_result with your full answer.",
     mcpViaWorkspaceFile: true,
     deniesViaAgentHome: true,
     buildSessionArgs({ cwd }) {

@@ -13,6 +13,7 @@ import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
 import { createAgentSession } from "./agentSession.js";
 import { createPtySession } from "./ptySession.js";
+import { createTaskChannel } from "./taskChannel.js";
 import { prepareAgentHome } from "./agentHome.js";
 import { prepareWorkspace } from "./workspaceConfig.js";
 import { getAdapter } from "./agents.js";
@@ -51,8 +52,11 @@ export async function startBridge(options = {}) {
     { timeoutMs: options.timeoutMs },
   );
 
+  // Present when the agent receives its turn over MCP rather than by typing.
+  const taskChannel = adapter.turnsOverMcp ? createTaskChannel({ log }) : null;
+
   const gateway = createGateway({
-    tools: options.tools ?? [],
+    tools: [...(options.tools ?? []), ...(taskChannel?.toolDefinitions() ?? [])],
     gate,
     onToolCall: (event) => log(`[tool] ${event.phase} ${event.tool}`),
   });
@@ -83,6 +87,13 @@ export async function startBridge(options = {}) {
         if (adapter.deniesViaAgentHome && options.denyPaths !== false) {
           runtime.home = prepareAgentHome({
             ...(Array.isArray(options.denyPaths) ? { denyPaths: options.denyPaths } : {}),
+            // Without trust, the workspace's MCP registration is ignored.
+            trustedWorkspaces: [runtime.cwd ?? cwd],
+            // Interactive agy reads MCP servers from the shared config, not the
+            // workspace file, so a PTY session needs it registered there too.
+            ...(adapter.pty
+              ? { mcpServers: { "mcp-acp-bridge": { url, type: "http", trust: true } } }
+              : {}),
             log,
           });
         }
@@ -127,6 +138,21 @@ export async function startBridge(options = {}) {
           onText: emitText,
           log,
         });
+        if (taskChannel) {
+          // Queue the turn first: the nudge tells the agent to come and get it,
+          // so the task must already be waiting when it asks.
+          const answered = taskChannel.runTurn(sessionId, prompt, { signal });
+          await runtime.agent.prompt(adapter.nudge, { signal }).catch((error) => {
+            // The nudge completing is not the turn completing; a terminal that
+            // misreads its own screen must not fail a turn the agent may still
+            // be working on.
+            log(`[agent] nudge returned: ${error?.message ?? "ok"}`);
+          });
+          const outcome = await answered;
+          runtime.started = true;
+          return { stopReason: "end_turn", text: outcome.text };
+        }
+
         const outcome = await runtime.agent.prompt(prompt, { signal });
         runtime.started = true;
         return { stopReason: "end_turn", text: outcome.text };

@@ -24,6 +24,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { allowAll } from "./gate.js";
+import { TRANSPORT_TOOLS } from "./taskChannel.js";
 
 const SERVER_INFO = { name: "mcp-acp-bridge", version: "0.0.1" };
 
@@ -74,7 +75,10 @@ export function createGateway(options = {}) {
       const call = { sessionId: session.sessionId, tool: name, args: args ?? {} };
       onToolCall?.({ ...call, phase: "requested" });
 
-      const decision = await gate(call);
+      // Transport tools carry the turn itself. Asking a human whether the agent
+      // may read its own instructions asks about the wrong thing, and a denial
+      // would strand the turn rather than prevent anything.
+      const decision = TRANSPORT_TOOLS.has(name) ? { allow: true } : await gate(call);
       if (!decision.allow) {
         onToolCall?.({ ...call, phase: "denied", reason: decision.reason });
         // Legible to the agent so it can adapt rather than retry blindly.
@@ -82,7 +86,9 @@ export function createGateway(options = {}) {
       }
 
       try {
-        const output = await tool.handler(args ?? {});
+        // Handlers receive the session so a tool can answer per-session — which
+        // is what lets one endpoint serve a turn to the right conversation.
+        const output = await tool.handler(args ?? {}, { sessionId: session.sessionId });
         onToolCall?.({ ...call, phase: "completed" });
         return { content: [{ type: "text", text: stringify(output) }] };
       } catch (error) {
