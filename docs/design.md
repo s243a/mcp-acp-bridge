@@ -320,6 +320,87 @@ Selecting a model also resets agy's effort (a model switch showed
 axis in the same picker and is not exposed yet; it belongs with the other
 per-turn options if it is wanted.
 
+## Designed, not built: a shared terminal
+
+In dual mode the agent already runs under a PTY, and that terminal is
+deliberately kept out of the transcript: it renders answers as a redrawing frame
+interleaved with spinners, so what arrives is shredded while the submitted
+result is exact. That is right for the answer and wrong for everything else —
+the terminal is where the interesting failures happen, and at present nobody can
+see it.
+
+Every hard problem in this project was diagnosed by turning on
+`BRIDGE_PTY_DEBUG` and reading the raw screen: the permission prompt agy was
+blocked on, the sign-in that had not finished, the model picker that ignores its
+argument. Each looked identical from outside — a turn that never returned.
+
+So: an **optional** mode that surfaces the terminal, with many watchers and one
+driver.
+
+### Optional, and off by default
+
+Off, because during an ordinary turn the terminal carries the echoed nudge and
+spinner frames and nothing worth reading. On, when something is wrong or when a
+person wants to see what the agent is actually doing. The value is visibility
+into a component that is otherwise a black box between "prompt sent" and
+"answer returned".
+
+It also wants a real terminal emulator on the client. The bridge currently
+strips escapes and extracts answers heuristically, which is enough to recover a
+sentence and not enough to render a screen. Feeding raw bytes to an emulator in
+the client is both more honest and less code — the byte stream is the truth, and
+guessing at it is what `extractAnswer` does because it has no other choice.
+
+### Watching is not driving
+
+**Many may watch; one may drive.** Not for etiquette — for the agent. Two people
+typing into one TUI do not merely inconvenience each other; they compose a
+single garbled instruction that the agent then acts on. An `ESC` from one person
+cancels the other's turn with nothing to say who did it.
+
+Control is therefore a distinct grant from viewing, and a much larger one.
+Keystrokes into a live agent's terminal are, in practice, use of that machine —
+slash commands, cancellation, and whatever the agent will do when asked. Anyone
+who may drive can do what the agent can do.
+
+### Handing over
+
+The interface is small and should stay so:
+
+- **Take control** when nobody holds it.
+- **Request control** when somebody does — the holder is asked, and a request
+  that is ignored expires rather than queueing forever.
+- **Give control** to a named watcher, which is the common case: one person
+  hands over deliberately.
+- **Release**, and an idle timeout that releases for you. A controller who
+  walked away should not hold the terminal until they come back.
+
+Every transition is announced in the stream itself, so the record of who was
+driving lives in the same place as what they did. A handover nobody can see
+afterwards is indistinguishable from someone else's mistake.
+
+### Across networks
+
+Sharing between people on different machines is the peer fabric's problem rather
+than this one: the terminal stream is bytes over an authenticated channel, and
+who may attach is a capability like any other. Two capabilities, not one —
+`terminal-watch` and `terminal-drive` — since the whole point is that they are
+different grants.
+
+Note what a shared terminal discloses. It shows everything the agent sees,
+including whatever it read on the way: file contents, tokens printed by a
+command, an error carrying a connection string. Sharing a terminal with a person
+is sharing that, and no permission model above it changes what is on the screen.
+
+### The surface this creates
+
+T3 has terminals, but they are ones a *user* opened; an agent-owned terminal has
+nowhere to appear, which is why the ACP `terminal` capability is currently
+declined rather than served. This design is that missing surface. Once it
+exists, serving `terminal/create` for an ACP agent becomes an obvious next step
+rather than a new subsystem — which is an argument for building this one first,
+and for building it in a way the other can reuse.
+
 ## Planned hardening: built-ins through MCP
 
 Disabling an agent's built-in file and shell tools and supplying equivalents as
