@@ -154,6 +154,36 @@ Four things about agy have to line up for this to work, each verified on 1.1.14:
    dependence on correctly detecting readiness. Because agy then asks for its
    task moments after spawn, the task must be queued before the process starts.
 
+## What a shell grant actually grants
+
+Verified on agy 1.1.14, in `agy-dual`, with the default deny list in place:
+
+```
+find . -maxdepth 0 -exec sh -c 'echo CANARY > /home/s243a/bridge-canary.txt' \;
+```
+
+The file was written. No prompt, no denial, outside the workspace.
+
+The deny rules are not broken; they govern the wrong thing. `write_file(...)`
+constrains the agent's *file tool*, and a shell command is not that tool. Grant
+`command(*)` and the deny list stops describing what the agent can reach — it
+describes only the paths one particular tool will not touch. Anything the shell
+can do, the agent can do.
+
+Two things happen to soften this and neither should be relied on. The session
+HOME override means `$HOME`-relative writes land in a directory that is deleted
+afterwards, so a canary written that way disappears; an absolute path does not.
+And an agent usually has no reason to leave its workspace. Neither is a boundary.
+
+The same prompt under `agy-dual-gated`, where `command(*)` is denied and
+execution arrives as `run_command`, reaches the client as a permission request
+carrying the command text. Rejected, agy reports the execution as blocked and
+the file is not written. That is the difference between reviewing a tool's name
+and reviewing what it will run.
+
+For a real boundary, put the process in an OS sandbox. Everything here is
+defence in depth.
+
 ## Gating execution
 
 Reviewing a tool by name is not enough for a shell. An agent that cannot run a
