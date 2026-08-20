@@ -154,6 +154,33 @@ Four things about agy have to line up for this to work, each verified on 1.1.14:
    dependence on correctly detecting readiness. Because agy then asks for its
    task moments after spawn, the task must be queued before the process starts.
 
+## Two permission channels
+
+Permission questions reach the bridge two ways, and both end at the same policy.
+
+**The tool channel** is the one to prefer. A call routed through the gateway is
+held before it runs, decided, and answered as an ACP permission request. It
+carries the tool's arguments, it cannot be missed, and nothing has to be read
+off a screen.
+
+**The terminal channel** is a fallback. Agents have their own built-in tools
+that never reach the gateway, and a standing grant can quietly stop matching —
+a renamed verb, a new one, a rule the agent no longer honours. In every such
+case the agent raises its own confirmation and waits for a keystroke that
+nothing here can send, and the turn stops with no error to show for it. Reading
+that prompt off the terminal turns a hang into a question.
+
+Instructing an agent to prefer MCP tools is worth doing, but it is not what
+makes the tool channel authoritative — an instruction is a request, not a
+constraint. A deny rule is the enforcement: with the built-in denied, the agent
+cannot take the other path. The terminal channel then covers what the rule does
+not match, which is the failure worth insuring against.
+
+The two channels overlap on MCP tools, which agents may also prompt about
+themselves. A verdict the tool channel reached is remembered briefly so the
+same call arriving on the terminal is answered from it rather than asked again:
+one call seen twice is one decision.
+
 ## Choosing a model
 
 `session/set_model` carries the client's choice to the agent. For a terminal

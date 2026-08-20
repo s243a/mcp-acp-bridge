@@ -52,6 +52,7 @@ const ARROW_DOWN = "\u001b[B";
 const ARROW_UP = "\u001b[A";
 const PICKER_MARKER = "Switch Model";
 const PICKER_END = "Effort";
+const PERMISSION_MARKER = "Do you want to proceed?";
 
 export function stripAnsi(text) {
   // Anchored on the escape character itself. Matching the bare bracket forms
@@ -70,6 +71,59 @@ export function stripAnsi(text) {
     .replace(/[\u0008\u0007]/g, "");
 }
 
+
+/**
+ * Read a permission prompt agy has raised on screen.
+ *
+ * The second permission channel. Tools routed through the bridge are decided by
+ * the gate, but agy's own tools never pass through it, and a standing grant can
+ * silently stop matching — a renamed verb, a new one, a rule agy no longer
+ * honours. Either way the turn stops dead waiting for a keystroke, so the
+ * prompt is worth catching wherever it appears.
+ *
+ * Returns the tool being asked about and the numbered choices, each tagged with
+ * what answering it means:
+ *
+ *   allow / deny        — this once
+ *   allow_always / deny_always — remembered, for the conversation or on disk
+ *
+ * Null unless the prompt is fully rendered, since a TUI paints it in pieces and
+ * answering half a prompt presses the wrong key.
+ */
+export function parsePermissionPrompt(screen) {
+  const plain = stripAnsi(screen);
+  const marker = plain.lastIndexOf(PERMISSION_MARKER);
+  if (marker === -1) return null;
+
+  const lines = plain.slice(marker + PERMISSION_MARKER.length).split("\n");
+  const options = [];
+  for (const rawLine of lines) {
+    const line = stripAnsi(rawLine).replace(/\s+$/, "");
+    const match = /^\s*>?\s*(\d+)\.\s+(.*)$/.exec(line);
+    if (!match) continue;
+    const [, digit, label] = match;
+    const text = label.trim();
+    if (!text) continue;
+    const yes = /^yes\b/i.test(text);
+    const remembered = /always/i.test(text);
+    options.push({
+      digit,
+      label: text,
+      kind: yes ? (remembered ? "allow_always" : "allow") : remembered ? "deny_always" : "deny",
+    });
+  }
+
+  // Both a yes and a no must be on screen: fewer means a half-painted prompt.
+  const hasYes = options.some((option) => option.kind.startsWith("allow"));
+  const hasNo = options.some((option) => option.kind.startsWith("deny"));
+  if (!hasYes || !hasNo) return null;
+
+  // The tool is named on the last non-empty line before the question.
+  const before = plain.slice(0, marker).split("\n").map((line) => stripAnsi(line).trim());
+  const tool = before.reverse().find((line) => line.length > 0 && !line.startsWith("─")) ?? "";
+
+  return { tool, options };
+}
 
 /**
  * Recover the answer from a turn's worth of terminal output.
@@ -140,6 +194,7 @@ export function createPtySession({
   cwd,
   env,
   onText,
+  onPermission,
   log = () => {},
   startupTimeoutMs = 60_000,
   turnTimeoutMs = 600_000,
@@ -153,6 +208,10 @@ export function createPtySession({
   let ready = false;
   let readyWaiters = [];
   let settleTimer = null;
+  // Everything before this has already been answered. Tracking a position
+  // rather than the last prompt's text lets the same tool ask twice.
+  let permissionCursor = 0;
+  let answering = false;
 
   function start() {
     if (child) return;
@@ -168,6 +227,7 @@ export function createPtySession({
     child.onData((data) => {
       if (process.env.BRIDGE_PTY_DEBUG) process.stderr.write(data);
       buffer += data;
+      answerPermissionPrompt();
       const plain = stripAnsi(buffer);
 
       if (!ready) {
@@ -213,6 +273,42 @@ export function createPtySession({
     if (cleaned) onText?.(cleaned);
     turn.resolve({ text: cleaned });
     pump();
+  }
+
+  /**
+   * Answer a permission prompt agy is blocked on.
+   *
+   * A prompt is only answered once — the screen keeps repainting it, and the
+   * digit is a keystroke, so a second press would land on whatever replaced it.
+   * The decision is the caller's; a caller that declines to decide leaves the
+   * prompt alone rather than guessing at an approval.
+   */
+  function answerPermissionPrompt() {
+    if (!onPermission || answering) return;
+    const prompt = parsePermissionPrompt(buffer.slice(permissionCursor));
+    if (!prompt) return;
+
+    answering = true;
+    permissionCursor = buffer.length;
+    log(`[pty] permission prompt for ${prompt.tool}`);
+    Promise.resolve(onPermission(prompt))
+      .then((kind) => {
+        const choice = prompt.options.find((option) => option.kind === kind);
+        if (!choice) {
+          log(`[pty] no option for "${kind}"; leaving the prompt for a human`);
+          return;
+        }
+        log(`[pty] answering ${prompt.tool} with ${choice.digit} (${choice.kind})`);
+        child?.write(`${choice.digit}\r`);
+      })
+      .catch((error) => {
+        // Never guess on failure: an unanswered prompt stalls one turn, where a
+        // wrong approval runs something nobody agreed to.
+        log(`[pty] permission decision failed: ${error?.message ?? error}`);
+      })
+      .finally(() => {
+        answering = false;
+      });
   }
 
   function waitForPicker(timeoutMs = 8_000) {

@@ -55,9 +55,48 @@ export async function startBridge(options = {}) {
   // Present when the agent receives its turn over MCP rather than by typing.
   const taskChannel = adapter.turnsOverMcp ? createTaskChannel({ log }) : null;
 
+  /**
+   * Decide a permission prompt the agent raised on its terminal.
+   *
+   * The second channel. Tools that reach the gateway are settled before they
+   * run and never surface here; what does surface is the agent's own tools,
+   * and anything a standing grant stopped covering. Routing both channels
+   * through the same policy keeps one answer to "may this run", however it was
+   * asked.
+   *
+   * Prompts for tools the gateway just settled are answered from that verdict
+   * rather than asked again — the same call arriving twice is one decision.
+   */
+  const decidePtyPermission = async (sessionId, prompt) => {
+    const recent = recentVerdicts.get(`${sessionId}:${prompt.tool}`);
+    if (recent) {
+      log(`[permission] ${prompt.tool} already settled by the tool channel`);
+      return recent;
+    }
+    // The terminal offers "always" variants; a policy that says yes once says
+    // yes once, so the plain answer is the honest translation.
+    const decision = await gate({ sessionId, tool: prompt.tool, args: {} });
+    return decision?.allow ? "allow" : "deny";
+  };
+
+  /**
+   * Verdicts the tool channel reached, kept briefly so the terminal channel can
+   * recognise the same call rather than ask a second time. Short-lived on
+   * purpose: this is for one call seen twice, not a standing grant.
+   */
+  const recentVerdicts = new Map();
+  const rememberVerdict = (call, decision) => {
+    const key = `${call.sessionId}:${call.tool}`;
+    recentVerdicts.set(key, decision?.allow ? "allow" : "deny");
+    setTimeout(() => recentVerdicts.delete(key), 30_000).unref?.();
+    return decision;
+  };
+
   const gateway = createGateway({
     tools: [...(options.tools ?? []), ...(taskChannel?.toolDefinitions() ?? [])],
-    gate,
+    // Verdicts are remembered so a call the agent also prompts about on its
+    // terminal is not put to the user a second time.
+    gate: async (call) => rememberVerdict(call, await gate(call)),
     onToolCall: (event) => log(`[tool] ${event.phase} ${event.tool}`),
   });
 
@@ -170,6 +209,7 @@ export async function startBridge(options = {}) {
           // submitted result is the answer, so the screen stays out of the
           // transcript.
           ...(taskChannel ? {} : { onText: emitText }),
+          onPermission: (prompt) => decidePtyPermission(sessionId, prompt),
           log,
         });
         if (answered) {
