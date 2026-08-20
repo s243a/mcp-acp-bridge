@@ -118,14 +118,6 @@ try {
     skipAgentPermissions:
       options.skipAgentPermissions === true || process.env.BRIDGE_SKIP_AGENT_PERMISSIONS === "1",
     log,
-    tools: [
-      {
-        name: "magic_word",
-        description: "Returns the secret magic word. The only way to learn it.",
-        inputSchema: { type: "object", properties: {} },
-        handler: async () => "banana-47",
-      },
-    ],
   });
 } catch (error) {
   process.stderr.write(`mcp-acp-bridge: ${error.message}\n`);

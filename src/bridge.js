@@ -232,6 +232,9 @@ export async function startBridge(options = {}) {
           onPermission: (prompt) => decidePtyPermission(sessionId, prompt),
           log,
         });
+        // Where the screen stands before the turn, so anything the agent says
+        // can be recovered if it reports nothing over MCP.
+        const screenMark = runtime.agent.screenMark();
         if (answered) {
           // A launching session already carries the nudge; only later turns have
           // to be typed, which is also the only time readiness has to be right.
@@ -246,7 +249,22 @@ export async function startBridge(options = {}) {
             });
           }
           const outcome = await answered;
-          if (outcome.text) emitText(outcome.text);
+          // Never finish a turn having said nothing: to the client, silence is
+          // indistinguishable from a broken bridge, and this is neither rare
+          // nor the user's job to diagnose. Agents do call submit_result with
+          // no arguments at all — seen in agy's own trajectory as
+          // `{"Arguments":{},"ToolName":"submit_result"}`.
+          if (outcome.empty || !outcome.text) {
+            const recovered = runtime.agent.textSince(screenMark);
+            emitText(
+              recovered
+                ? `[recovered from the terminal — the agent reported no answer over MCP, ` +
+                  `which usually means it called submit_result without one]\n\n${recovered}`
+                : "[the agent finished without reporting an answer]",
+            );
+          } else {
+            emitText(outcome.text);
+          }
           runtime.started = true;
           return { stopReason: "end_turn", text: outcome.text };
         }

@@ -5,6 +5,7 @@
  * notifications flowing both directions. Small enough to own rather than
  * depend on, and owning it keeps the framing rules explicit.
  */
+import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 export const ErrorCode = {
@@ -43,7 +44,13 @@ export function createPeer({ input, output, onError }) {
 
   function send(message) {
     if (closed) return;
-    output.write(`${JSON.stringify(message)}\n`);
+    const line = JSON.stringify(message);
+    if (process.env.BRIDGE_WIRE_LOG) {
+      try {
+        appendFileSync(process.env.BRIDGE_WIRE_LOG, `OUT ${line}\n`);
+      } catch {}
+    }
+    output.write(`${line}\n`);
   }
 
   function dispatch(line) {

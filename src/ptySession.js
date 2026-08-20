@@ -389,6 +389,19 @@ export function createPtySession({
         pump();
       });
     },
+    /** Where the screen currently ends, to read forward from later. */
+    screenMark: () => buffer.length,
+    /**
+     * What the agent appears to have said since a mark.
+     *
+     * A recovery path, not a transport. Reading a redrawing screen is exactly
+     * what the MCP channel exists to avoid, so this is for the case where the
+     * agent finished without reporting anything and the alternative is showing
+     * the user nothing at all.
+     */
+    textSince(mark) {
+      return extractAnswer(buffer.slice(mark));
+    },
     /** Send a slash command, e.g. `/clear`. */
     sendCommand(text) {
       start();

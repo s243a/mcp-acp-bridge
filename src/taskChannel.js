@@ -91,10 +91,26 @@ export function createTaskChannel({ log = () => {}, waitTimeoutMs = 600_000 } = 
   function submit(sessionId, result) {
     const entry = pending.get(sessionId);
     if (!entry) return "No task was pending; nothing to submit.";
+
+    // An empty answer is worse than a wrong one: the turn completes, there is
+    // nothing to render, and the user sees silence with no way to tell whether
+    // anything ran at all. Ask once — agents do submit blank results, and the
+    // retry usually carries the answer they meant to send.
+    if (result.trim().length === 0 && !entry.askedForContent) {
+      entry.askedForContent = true;
+      log(`[task] empty result for ${sessionId}; asking again`);
+      return (
+        "Your result was empty, so nothing was reported. " +
+        "Call submit_result again with your full answer as `result`."
+      );
+    }
+
     clearTimeout(entry.timer);
     pending.delete(sessionId);
     log(`[task] result submitted for ${sessionId} (${result.length} chars)`);
-    entry.resolve({ text: result });
+    // Taken the second time whatever it says, so a stubbornly silent agent ends
+    // its turn instead of hanging; the caller reports the emptiness.
+    entry.resolve({ text: result, empty: result.trim().length === 0 });
     return "Result recorded. Stop here and wait for the next task.";
   }
 

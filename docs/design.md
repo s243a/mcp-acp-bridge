@@ -175,6 +175,29 @@ Reads and writes stay with the agent in this mode. They are what it is for, the
 deny list still bounds where they may go, and a mode that stops for every read
 is a mode nobody leaves switched on.
 
+## An empty answer
+
+Agents finish turns without saying anything. agy's own trajectory records the
+call as `{"Arguments":{},"ToolName":"submit_result"}` — the tool invoked with no
+arguments at all. The turn completes, there is nothing to render, and the client
+shows silence, which is the one failure indistinguishable from a broken bridge.
+
+The channel asks once: an empty result is refused with a note telling the agent
+to call again with its answer, which in practice it then does. A second empty
+result is accepted rather than pressed, so a stubbornly silent agent ends its
+turn instead of hanging on it.
+
+If the answer is still missing, the terminal is read for whatever the agent said
+on screen, and reported as recovered — flagged, like a permission that arrived
+the wrong way, because the MCP channel is the one that should have carried it.
+Failing even that, the turn says plainly that nothing was reported. What it
+never does is finish silently.
+
+Agy also keeps its conversations as SQLite under `antigravity-cli/conversations`,
+which looks like a better recovery source than a screen until you open one: the
+payloads are protobuf with JSON embedded, undocumented and version-dependent.
+The screen is fragile in an obvious way; that would be fragile in a subtle one.
+
 ## Two permission channels
 
 Permission questions reach the bridge two ways, and both end at the same policy.
