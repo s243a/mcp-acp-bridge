@@ -200,3 +200,46 @@ test("a model choice is passed through to the agent", async () => {
   assert.deepEqual(response, {});
   assert.deepEqual(seen, [{ sessionId, modelId: "gemini-3.7-pro" }]);
 });
+
+test("a terminal-channel request is answerable, and says why it looks odd", async () => {
+  const { server, client, updates } = connect();
+  const sessionId = await newSession(client);
+
+  let card = null;
+  client.on("session/request_permission", (params) => {
+    card = params.toolCall;
+    return { outcome: { outcome: "selected", optionId: "allow-once" } };
+  });
+
+  const gate = makeGate((call) => server.decide(call));
+  const decision = await gate({ sessionId, tool: "RunCommand", args: {}, viaTerminal: true });
+
+  // The point of the channel: the user can still approve.
+  assert.equal(decision.allow, true);
+
+  // And is told the route was not the intended one.
+  assert.match(card.title, /asked on the terminal/);
+  const said = updates
+    .map((update) => update.update?.content?.text ?? "")
+    .join("");
+  assert.match(said, /rather than through the tool channel/);
+  assert.match(said, /permission rule no longer matches/);
+});
+
+test("an ordinary request carries no such notice", async () => {
+  const { server, client, updates } = connect();
+  const sessionId = await newSession(client);
+
+  let card = null;
+  client.on("session/request_permission", (params) => {
+    card = params.toolCall;
+    return { outcome: { outcome: "selected", optionId: "allow-once" } };
+  });
+
+  const gate = makeGate((call) => server.decide(call));
+  await gate({ sessionId, tool: "RunCommand", args: {} });
+
+  assert.equal(card.title, "RunCommand");
+  const said = updates.map((update) => update.update?.content?.text ?? "").join("");
+  assert.doesNotMatch(said, /tool channel/);
+});

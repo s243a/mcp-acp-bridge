@@ -210,6 +210,10 @@ export function createAcpServer(options) {
       return { allow: true, reason: "allowed for session", toolCallId };
     }
 
+    // Say so in the transcript before asking, so the reason the card looks
+    // unusual is on screen next to it rather than only in a log.
+    if (call.viaTerminal) emitAgentText(call.sessionId, terminalChannelNotice(call.tool));
+
     emitToolCall(call.sessionId, {
       toolCallId,
       title: describeCall(call),
@@ -316,8 +320,23 @@ function promptToText(prompt) {
 }
 
 function describeCall(call) {
-  return `${call.tool}`;
+  // A request that arrived on the terminal says so on the card itself: the
+  // approval still works, and the anomaly would otherwise go unnoticed.
+  return call.viaTerminal ? `${call.tool} (asked on the terminal)` : `${call.tool}`;
 }
+
+/**
+ * Why a terminal-channel request is worth remarking on.
+ *
+ * Not an error: answering it works and the turn continues. It means the agent
+ * asked the way it would ask a human, instead of through the tool channel —
+ * which normally follows a permission rule that has stopped matching, whether a
+ * renamed tool, a new one, or configuration that did not take.
+ */
+export const terminalChannelNotice = (tool) =>
+  `\n[permission] "${tool}" was asked for on the agent's terminal rather than through the tool ` +
+  `channel. Answering here works, but this usually means a permission rule no longer matches — ` +
+  `worth checking the agent's configuration.\n`;
 
 function prettyArgs(args) {
   try {

@@ -75,8 +75,15 @@ export async function startBridge(options = {}) {
       return recent;
     }
     // The terminal offers "always" variants; a policy that says yes once says
-    // yes once, so the plain answer is the honest translation.
-    const decision = await gate({ sessionId, tool: prompt.tool, args: {} });
+    // yes once, so the plain answer is the honest translation. `viaTerminal`
+    // tells the client this arrived on the fallback channel, which it reports
+    // rather than hides: the answer counts, but the route is a symptom.
+    const decision = await gate({
+      sessionId,
+      tool: prompt.tool,
+      args: {},
+      viaTerminal: true,
+    });
     return decision?.allow ? "allow" : "deny";
   };
 

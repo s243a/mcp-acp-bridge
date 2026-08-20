@@ -197,6 +197,12 @@ constraint. A deny rule is the enforcement: with the built-in denied, the agent
 cannot take the other path. The terminal channel then covers what the rule does
 not match, which is the failure worth insuring against.
 
+A terminal-channel request is answered by the user like any other, and says so
+on the card — `RunCommand (asked on the terminal)` — with a line in the
+transcript explaining that a permission rule has probably stopped matching. The
+approval counts either way; the route is the symptom, and hiding it would leave
+a configuration error to be discovered as a mysterious pause instead.
+
 The two channels overlap on MCP tools, which agents may also prompt about
 themselves. A verdict the tool channel reached is remembered briefly so the
 same call arriving on the terminal is answered from it rather than asked again:
