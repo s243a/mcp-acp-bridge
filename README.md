@@ -77,9 +77,51 @@ no `tool_call`. That is a visibility gap, not a correctness one — clients that
 checkpoint the workspace (T3 Code diffs it on turn boundaries) still record what
 changed. What is lost is live per-action progress, not the record.
 
-Routing built-ins through the bridge as MCP tools closes that gap and upgrades
-the security model from standing grants to per-action review. It is planned
-hardening, not a prerequisite.
+## Choosing a mode
+
+Modes differ in what stops for review. Pick by what you are willing to have
+happen without being asked.
+
+| Mode | Turns | Tool calls | Shell |
+| --- | --- | --- | --- |
+| `agy-dual` | over MCP | not reviewed | **runs unreviewed** |
+| `agy-dual-gated` | over MCP | not reviewed | reviewed, with the command shown |
+| `agy-gated` | over MCP | reviewed | no shell in an empty workspace |
+| `agy-sandboxed` | headless | not reviewed | OS sandbox, permissions skipped |
+
+### What an unreviewed shell means
+
+`agy-dual` grants the agent's shell tool outright, and a granted shell is not
+bounded by the deny list. Those rules are per-tool: `write_file(/home/you/.ssh)`
+constrains the agent's *file* tool, and a shell command is not that tool.
+
+This is measured, not theoretical. **Observed 2026-08-19 on agy 1.1.15**, with
+the default deny rules in place, from a single prompt:
+
+```
+find . -maxdepth 0 -exec sh -c 'echo CANARY > /home/you/bridge-canary.txt' \;
+```
+
+The file was written, outside the workspace, with no prompt. The same request
+under `agy-dual-gated` arrives as a permission card carrying that command text;
+refused, nothing is written.
+
+Two things can make this look contained, and neither is a boundary. Writes
+relative to `$HOME` land in the throwaway per-session home and vanish with it,
+so a `$HOME` canary disappears where an absolute path does not; and an agent
+usually has no reason to leave its workspace at all.
+
+Antigravity's own sandboxing is moving, and a later release may well close this.
+Treat the date and version above as the scope of the claim rather than a
+standing property of agy, and re-run the canary if it matters to you — one
+prompt, and the answer is a file that either exists or does not.
+
+In practice the realistic risk is an accident — a wrong path, an overreaching
+cleanup — rather than anything deliberate, and running an agent on your own
+machine is ordinary. `agy-dual` is a reasonable default for a workspace you can
+restore. What it is not is a place to keep credentials you would mind losing,
+and if you want a real boundary rather than defence in depth, run the process
+inside an OS sandbox.
 
 ## MCP revision support
 

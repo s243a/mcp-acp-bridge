@@ -156,7 +156,8 @@ Four things about agy have to line up for this to work, each verified on 1.1.14:
 
 ## What a shell grant actually grants
 
-Verified on agy 1.1.14, in `agy-dual`, with the default deny list in place:
+Observed 2026-08-19 on agy 1.1.15, in `agy-dual`, with the default deny list
+in place:
 
 ```
 find . -maxdepth 0 -exec sh -c 'echo CANARY > /home/s243a/bridge-canary.txt' \;
@@ -180,6 +181,11 @@ execution arrives as `run_command`, reaches the client as a permission request
 carrying the command text. Rejected, agy reports the execution as blocked and
 the file is not written. That is the difference between reviewing a tool's name
 and reviewing what it will run.
+
+Antigravity's sandboxing is under active development and a later release may
+close this. The date and version above are the scope of the claim, not a
+standing property of agy: re-run the canary when it matters, since the answer is
+a file that either exists or does not.
 
 For a real boundary, put the process in an OS sandbox. Everything here is
 defence in depth.
