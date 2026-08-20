@@ -14,6 +14,7 @@ import { createGateway } from "./mcpGateway.js";
 import { createAgentSession } from "./agentSession.js";
 import { createPtySession } from "./ptySession.js";
 import { createExecTools } from "./execTools.js";
+import { createFileTools } from "./fileTools.js";
 import { createTaskChannel } from "./taskChannel.js";
 import { prepareAgentHome } from "./agentHome.js";
 import { prepareWorkspace } from "./workspaceConfig.js";
@@ -100,15 +101,17 @@ export async function startBridge(options = {}) {
     return decision;
   };
 
-  // Execution offered over MCP so the gate sees the command, not just a name.
-  const execTools = adapter.execViaMcp
-    ? createExecTools({ resolveCwd: (sessionId) => runtimes.get(sessionId)?.cwd ?? cwd })
-    : [];
+  // Work offered over MCP so the gate sees what will happen — the command, the
+  // path, the content — rather than only that something will.
+  const resolveCwd = (sessionId) => runtimes.get(sessionId)?.cwd ?? cwd;
+  const execTools = adapter.execViaMcp ? createExecTools({ resolveCwd }) : [];
+  const fileTools = adapter.filesViaMcp ? createFileTools({ resolveCwd }) : [];
 
   const gateway = createGateway({
     tools: [
       ...(options.tools ?? []),
       ...execTools,
+      ...fileTools,
       ...(taskChannel?.toolDefinitions() ?? []),
     ],
     // Verdicts are remembered so a call the agent also prompts about on its

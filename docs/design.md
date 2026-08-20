@@ -244,6 +244,33 @@ which looks like a better recovery source than a screen until you open one: the
 payloads are protobuf with JSON embedded, undocumented and version-dependent.
 The screen is fragile in an obvious way; that would be fragile in a subtle one.
 
+## Files over MCP, and where confinement stops
+
+`read_file` and `write_file` sit beside `run_command` for the same reason: a
+held call carries the path — and for a write, the content — so what gets
+reviewed is the change rather than the fact that one is coming. Denying the
+agent's own file tools is what makes that route authoritative; offering it
+without denying them leaves both doors open.
+
+File tools are also **confined** to the workspace, which the shell is not. A
+path is resolved through symlinks before the check, so `..`, an absolute path
+elsewhere, and a link inside the workspace pointing out are all refused
+identically. A file that does not exist yet is judged by its nearest existing
+parent, which is what a write needs.
+
+Do not mistake that for a boundary around the agent. Asked to write outside its
+workspace, agy was refused by `write_file` and immediately tried
+`run_command` with `echo -n "CANARY" > /home/you/bridge-canary.txt` — approved
+in that test, and the file was written. The lesson is not that confinement
+failed; it did its job. It is that **the shell has no equivalent**, and cannot:
+paths in a command line cannot be reliably found, let alone rewritten. For the
+shell the control is review, which means a reviewer who reads the command they
+are approving.
+
+That is the same layering as everywhere else here. Confinement where the shape
+of the call allows it, review where it does not, and an OS sandbox when a real
+boundary is wanted rather than defence in depth.
+
 ## Two permission channels
 
 Permission questions reach the bridge two ways, and both end at the same policy.

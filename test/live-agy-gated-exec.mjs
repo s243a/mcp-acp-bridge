@@ -49,7 +49,7 @@ const done = client.request("session/prompt", {
   prompt: [
     {
       type: "text",
-      text: "Write a file hello.sh containing `echo GATED_OK`, then run it with bash and reply with its exact output.",
+      text: "Write a file notes.md containing the single line GATED_OK, then read it back and reply with its exact contents.",
     },
   ],
 });
@@ -72,15 +72,15 @@ if (!reviewed.length) {
   console.error("FAIL: execution was never put to the gate");
   failed = true;
 }
-if (!reviewed.every((call) => call.tool === "run_command")) {
-  console.error("FAIL: something other than run_command carried the execution");
+if (!reviewed.some((call) => call.tool === "write_file")) {
+  console.error("FAIL: the write never reached the gate");
   failed = true;
 }
-if (!/hello\.sh/.test(commands)) {
-  console.error("FAIL: the gate was not shown the command text");
+if (!/GATED_OK/.test(commands)) {
+  console.error("FAIL: the gate was not shown the content being written");
   failed = true;
 }
 
 await bridge.close();
-console.log(failed ? "FAILED" : "PASS — execution reviewed with the command in hand");
+console.log(failed ? "FAILED" : "PASS — file work reviewed with path and content in hand");
 process.exit(failed ? 1 : 0);

@@ -241,12 +241,21 @@ export const adapters = {
     nudge: "Call the next_task tool to get your task, carry it out, then call submit_result with your full answer.",
     mcpViaWorkspaceFile: true,
     deniesViaAgentHome: true,
-    /** Offer execution over MCP, so the gate sees the command itself. */
+    /** Offer execution and file access over MCP, so the gate sees what happens. */
     execViaMcp: true,
-    /** And close the path that would bypass it. */
-    denyRules: ["command(*)"],
-    // Reads and writes are the agent's own work; execution is the reviewed part.
-    autoApprove: ["read_file(*)", "write_file(*)", "read_url(*)"],
+    filesViaMcp: true,
+    /**
+     * And close the paths that would bypass them.
+     *
+     * A denied built-in is what makes the MCP route authoritative rather than
+     * merely available. Note what this costs: every file the agent touches now
+     * takes a round trip through the gate, so the review policy decides whether
+     * that is one prompt or none — `review-consequential` lets reads through and
+     * stops writes, which is the setting this mode is shaped for.
+     */
+    denyRules: ["command(*)", "read_file(*)", "write_file(*)"],
+    // Fetching a URL is neither execution nor a file, and has its own tool.
+    autoApprove: ["read_url(*)"],
     buildSessionArgs({ cwd, initialPrompt }) {
       // -i runs the prompt then stays interactive, so the first turn never has
       // to be typed — which removes the echo the terminal would otherwise
