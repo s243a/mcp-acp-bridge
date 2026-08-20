@@ -258,9 +258,9 @@ export async function startBridge(options = {}) {
             const recovered = runtime.agent.textSince(screenMark);
             emitText(
               recovered
-                ? `[recovered from the terminal — the agent reported no answer over MCP, ` +
-                  `which usually means it called submit_result without one]\n\n${recovered}`
-                : "[the agent finished without reporting an answer]",
+                ? `[recovered from the terminal — the agent did not report this over MCP, ` +
+                  `which usually means it called submit_result without an answer]\n\n${recovered}`
+                : "[the agent received your message but did not reply — try sending it again]",
             );
           } else {
             emitText(outcome.text);

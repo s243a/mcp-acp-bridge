@@ -98,11 +98,19 @@ export function createTaskChannel({ log = () => {}, waitTimeoutMs = 600_000 } = 
     // retry usually carries the answer they meant to send.
     if (result.trim().length === 0 && !entry.askedForContent) {
       entry.askedForContent = true;
-      log(`[task] empty result for ${sessionId}; asking again`);
-      return (
-        "Your result was empty, so nothing was reported. " +
-        "Call submit_result again with your full answer as `result`."
+      // Two different mistakes wear the same face. Answering without having
+      // fetched the task means the agent never saw what was asked; answering
+      // with nothing means it did and dropped the argument — a slip its own
+      // cached schema marks required. Saying which one keeps the retry useful.
+      const cause = entry.delivered
+        ? "Your result was empty, so nothing was reported."
+        : "You have not called next_task yet, so there is nothing to report on.";
+      log(
+        `[task] empty result for ${sessionId} (task ${entry.delivered ? "was" : "was NOT"} fetched); asking again`,
       );
+      return entry.delivered
+        ? `${cause} Call submit_result again with your full answer as \`result\`.`
+        : `${cause} Call next_task first, carry out what it returns, then call submit_result with your answer as \`result\`.`;
     }
 
     clearTimeout(entry.timer);

@@ -41,3 +41,20 @@ test("an answer given after the query is the one reported", async () => {
   assert.equal(outcome.text, "Hello");
   assert.notEqual(outcome.empty, true);
 });
+
+test("an answer given before fetching the task is corrected differently", async () => {
+  const channel = createTaskChannel({ log: () => {} });
+  const turn = channel.runTurn("s3", "Say hello");
+  const [takeTool, submitTool] = channel.toolDefinitions();
+
+  // Never fetched: the agent cannot have an answer, so telling it to resend one
+  // would send it round the same loop.
+  const reply = await submitTool.handler({ result: "" }, { sessionId: "s3" });
+  assert.match(reply, /next_task/);
+  assert.doesNotMatch(reply, /again with your full answer/);
+
+  // Settle the turn so the test does not leave one pending.
+  await takeTool.handler({}, { sessionId: "s3" });
+  await submitTool.handler({ result: "done" }, { sessionId: "s3" });
+  assert.equal((await turn).text, "done");
+});
