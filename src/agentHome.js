@@ -73,6 +73,7 @@ export function prepareAgentHome({
   trustedWorkspaces = [],
   mcpServers = null,
   allowRules = [],
+  denyRules = [],
   extraSettings = {},
   log = () => {},
 } = {}) {
@@ -113,7 +114,15 @@ export function prepareAgentHome({
       ...(allowRules.length || extraSettings.permissions?.allow
         ? { allow: [...allowRules, ...(extraSettings.permissions?.allow ?? [])] }
         : {}),
-      deny: [...buildDenyRules(denyPaths), ...(extraSettings.permissions?.deny ?? [])],
+      // Denying a built-in is what makes an MCP equivalent authoritative:
+      // told to prefer a tool, an agent may still reach for its own, and only
+      // a rule stops it. Deny wins over allow, and holds even where
+      // permissions are otherwise skipped.
+      deny: [
+        ...buildDenyRules(denyPaths),
+        ...denyRules,
+        ...(extraSettings.permissions?.deny ?? []),
+      ],
     },
   };
   writeFileSync(join(targetCli, "settings.json"), `${JSON.stringify(settings, null, 2)}\n`, "utf8");

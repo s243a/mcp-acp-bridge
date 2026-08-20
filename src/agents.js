@@ -218,6 +218,45 @@ export const adapters = {
     },
   },
 
+  /**
+   * Dual transport with execution gated.
+   *
+   * The mode that closes the write-then-run gap. Reviewing a tool by name is
+   * not enough for a shell: an agent that cannot run a command can still write
+   * a script and ask for the script to be run, and the run is the part that
+   * matters. So the command arrives as an MCP call carrying the command text,
+   * where the gate can see exactly what will execute.
+   *
+   * agy's own command tool is denied rather than merely discouraged, because an
+   * instruction to prefer a tool is a request and a deny rule is not. Reads and
+   * writes stay with the agent — they are what it is for, and the deny list
+   * still bounds where they may go.
+   */
+  "agy-dual-gated": {
+    name: "agy-dual-gated",
+    command: "agy",
+    restrictToMcp: false,
+    pty: true,
+    turnsOverMcp: true,
+    nudge: "Call the next_task tool to get your task, carry it out, then call submit_result with your full answer.",
+    mcpViaWorkspaceFile: true,
+    deniesViaAgentHome: true,
+    /** Offer execution over MCP, so the gate sees the command itself. */
+    execViaMcp: true,
+    /** And close the path that would bypass it. */
+    denyRules: ["command(*)"],
+    // Reads and writes are the agent's own work; execution is the reviewed part.
+    autoApprove: ["read_file(*)", "write_file(*)", "read_url(*)"],
+    buildSessionArgs({ cwd, initialPrompt }) {
+      // -i runs the prompt then stays interactive, so the first turn never has
+      // to be typed — which removes the echo the terminal would otherwise
+      // reflow and shred.
+      const args = ["--add-dir", cwd];
+      if (initialPrompt) args.push("-i", initialPrompt);
+      return args;
+    },
+  },
+
 
 };
 

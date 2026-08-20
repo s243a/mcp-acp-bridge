@@ -154,6 +154,27 @@ Four things about agy have to line up for this to work, each verified on 1.1.14:
    dependence on correctly detecting readiness. Because agy then asks for its
    task moments after spawn, the task must be queued before the process starts.
 
+## Gating execution
+
+Reviewing a tool by name is not enough for a shell. An agent that cannot run a
+command can still write a script and ask for the script to be run: the write is
+harmless, the run is not, and by the time a name like "RunCommand" appears there
+is nothing in it to judge.
+
+So execution is offered as an MCP tool, `run_command`, and the held call carries
+the command itself — `echo 'echo GATED_OK' > hello.sh && bash hello.sh` reaches
+the client as text a policy or a person can read before anything happens.
+
+Offering it is not enough on its own. An instruction to prefer a tool is a
+request, and an agent under pressure to finish will reach for what it has. The
+deny rule is the enforcement: with `command(*)` denied in the session HOME, the
+MCP route is the only route, which is what makes the gate authoritative rather
+than merely available.
+
+Reads and writes stay with the agent in this mode. They are what it is for, the
+deny list still bounds where they may go, and a mode that stops for every read
+is a mode nobody leaves switched on.
+
 ## Two permission channels
 
 Permission questions reach the bridge two ways, and both end at the same policy.

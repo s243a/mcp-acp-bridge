@@ -13,6 +13,7 @@ import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
 import { createAgentSession } from "./agentSession.js";
 import { createPtySession } from "./ptySession.js";
+import { createExecTools } from "./execTools.js";
 import { createTaskChannel } from "./taskChannel.js";
 import { prepareAgentHome } from "./agentHome.js";
 import { prepareWorkspace } from "./workspaceConfig.js";
@@ -92,8 +93,17 @@ export async function startBridge(options = {}) {
     return decision;
   };
 
+  // Execution offered over MCP so the gate sees the command, not just a name.
+  const execTools = adapter.execViaMcp
+    ? createExecTools({ resolveCwd: (sessionId) => runtimes.get(sessionId)?.cwd ?? cwd })
+    : [];
+
   const gateway = createGateway({
-    tools: [...(options.tools ?? []), ...(taskChannel?.toolDefinitions() ?? [])],
+    tools: [
+      ...(options.tools ?? []),
+      ...execTools,
+      ...(taskChannel?.toolDefinitions() ?? []),
+    ],
     // Verdicts are remembered so a call the agent also prompts about on its
     // terminal is not put to the user a second time.
     gate: async (call) => rememberVerdict(call, await gate(call)),
@@ -144,6 +154,9 @@ export async function startBridge(options = {}) {
                   ],
                 }
               : {}),
+            // What the agent must not do for itself, having been given an MCP
+            // route that is reviewed.
+            ...(adapter.denyRules ? { denyRules: adapter.denyRules } : {}),
             log,
           });
         }
