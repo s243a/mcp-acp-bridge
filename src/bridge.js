@@ -95,8 +95,16 @@ export async function startBridge(options = {}) {
             // the legacy `url`/`type` pair registers as a server with no tools.
             ...(adapter.pty ? { mcpServers: { "mcp-acp-bridge": { serverUrl: url } } } : {}),
             // The task channel is transport, not work: prompting for it would
-            // stall the turn before the agent ever sees its instructions.
-            ...(adapter.turnsOverMcp ? { allowRules: ["mcp(mcp-acp-bridge/*)"] } : {}),
+            // stall the turn before the agent ever sees its instructions. An
+            // adapter adds whatever else it cannot afford to be asked about.
+            ...(adapter.turnsOverMcp || adapter.autoApprove
+              ? {
+                  allowRules: [
+                    ...(adapter.turnsOverMcp ? ["mcp(mcp-acp-bridge/*)"] : []),
+                    ...(adapter.autoApprove ?? []),
+                  ],
+                }
+              : {}),
             log,
           });
         }

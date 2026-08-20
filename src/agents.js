@@ -195,6 +195,19 @@ export const adapters = {
     nudge: "Call the next_task tool to get your task, carry it out, then call submit_result with your full answer.",
     mcpViaWorkspaceFile: true,
     deniesViaAgentHome: true,
+    /**
+     * Built-in tools agy may use without stopping to ask.
+     *
+     * Nothing on this side of the terminal can answer a confirmation: agy
+     * surfaces one for RunCommand and simply waits, so the turn never returns.
+     * Dual mode routes *turns* over MCP, not tool calls — reviewing those is
+     * what agy-gated is for.
+     *
+     * Granted by name rather than by skipping permissions wholesale, so the
+     * riskier verbs agy knows (`unsandboxed`, `escalate_admin`, `execute_url`)
+     * still stop. The session HOME's deny rules continue to apply.
+     */
+    autoApprove: ["command(*)", "read_file(*)", "write_file(*)", "read_url(*)"],
     buildSessionArgs({ cwd, initialPrompt }) {
       // -i runs the prompt then stays interactive, so the first turn never has
       // to be typed — which removes the echo the terminal would otherwise

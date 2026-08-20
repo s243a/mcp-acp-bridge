@@ -118,3 +118,17 @@ test("an initial prompt rides in argv so the first turn is never typed", () => {
     "-i runs the prompt and keeps the session interactive",
   );
 });
+
+test("dual mode grants the built-ins it cannot be asked about, and no more", () => {
+  const granted = getAdapter("agy-dual").autoApprove;
+
+  // A confirmation agy raises for its own tools has no one to answer it.
+  assert.ok(granted.includes("command(*)"));
+  assert.ok(granted.includes("read_file(*)"));
+  assert.ok(granted.includes("write_file(*)"));
+
+  // The riskier verbs still stop, which a blanket skip would not do.
+  for (const verb of ["unsandboxed(*)", "escalate_admin(*)", "execute_url(*)"]) {
+    assert.ok(!granted.includes(verb), `${verb} should still require approval`);
+  }
+});

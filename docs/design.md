@@ -142,7 +142,14 @@ Four things about agy have to line up for this to work, each verified on 1.1.14:
    agy's own built-in `mcp(chrome-devtools/*)`, and go in the session HOME's
    `settings.json`. They apply in interactive mode only: headless auto-denies
    and says so.
-4. **The first turn rides in argv.** `-i <prompt>` runs a prompt and stays
+4. **Built-in tools need standing grants too.** The MCP rule only covers the
+   task channel. The moment agy wants its own `RunCommand` it surfaces a
+   confirmation and waits — `tool_confirmation_manager.go: Surfacing tool
+   confirmation: "RunCommand"` in its log, with the turn never returning. Dual
+   mode grants `command`, `read_file`, `write_file` and `read_url` by name
+   rather than skipping permissions wholesale, so the riskier verbs agy knows
+   (`unsandboxed`, `escalate_admin`, `execute_url`) still stop.
+5. **The first turn rides in argv.** `-i <prompt>` runs a prompt and stays
    interactive, so the opening nudge is never typed — no echo to unpick, and no
    dependence on correctly detecting readiness. Because agy then asks for its
    task moments after spawn, the task must be queued before the process starts.
