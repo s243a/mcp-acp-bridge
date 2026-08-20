@@ -119,9 +119,34 @@ prompt, and the answer is a file that either exists or does not.
 In practice the realistic risk is an accident — a wrong path, an overreaching
 cleanup — rather than anything deliberate, and running an agent on your own
 machine is ordinary. `agy-dual` is a reasonable default for a workspace you can
-restore. What it is not is a place to keep credentials you would mind losing,
-and if you want a real boundary rather than defence in depth, run the process
-inside an OS sandbox.
+restore. What it is not is a place to keep credentials you would mind losing.
+
+### If this matters to you
+
+Use both. They fail in different directions, which is the point.
+
+**Run the bridge in an OS sandbox.** This is the only real boundary: it bounds
+what the process can reach at all, whatever tool it reaches with and whatever
+path it names. On Linux, `bwrap` or `firejail` with the workspace bound in and
+`$HOME` left out; a container or VM does the same job more heavily. On macOS,
+a container, or `sandbox-exec` for a rough equivalent. What a sandbox will not
+do is tell you what is about to happen — it silently refuses, and the agent
+usually reports a confusing failure.
+
+**And use `agy-dual-gated`.** Review is what a sandbox cannot give you: the
+command arrives as text you can read before it runs, so a mistake is visible
+rather than merely blocked. What review cannot give you is a guarantee, since
+it rests on a deny rule matching the tool the agent chose.
+
+Together, the sandbox bounds the damage and the gate shows you the intent.
+Either alone leaves a real gap: a sandbox with an unreviewed shell will let the
+agent thrash destructively inside your workspace without ever asking, and review
+without a sandbox depends on the agent taking the route you gated.
+
+One thing not to confuse with any of this: agy's own `--sandbox` flag, used by
+the `agy-sandboxed` profile, is described by agy as *terminal restrictions*. In
+testing it did not stop file reads outside the workspace, with or without the
+flag. It is not an OS sandbox and should not be relied on as one.
 
 ## MCP revision support
 

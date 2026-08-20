@@ -187,8 +187,18 @@ close this. The date and version above are the scope of the claim, not a
 standing property of agy: re-run the canary when it matters, since the answer is
 a file that either exists or does not.
 
-For a real boundary, put the process in an OS sandbox. Everything here is
-defence in depth.
+The recommendation for anyone who cares about this is both: run the bridge under
+an OS sandbox *and* use a gated mode. A sandbox is the only real boundary — it
+bounds what the process can reach whatever tool it reaches with — but it cannot
+say what is about to happen, so a refusal surfaces as a confusing failure. A
+gate cannot guarantee anything, since it rests on a deny rule matching the route
+the agent took, but it shows the command before it runs. The sandbox bounds the
+damage; the gate shows the intent. A sandbox alone still lets an unreviewed
+shell thrash inside the workspace without asking.
+
+Not to be confused with either: agy's own `--sandbox`, which agy describes as
+terminal restrictions and which did not stop reads outside the workspace in
+testing. Everything in this repo is defence in depth, not a jail.
 
 ## Gating execution
 
