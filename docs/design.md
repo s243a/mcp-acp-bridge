@@ -426,6 +426,36 @@ code is — running remotely, or sandboxed — asking the machine that *does* ha
 the code to run tests and report back. Useful, and a different feature from
 watching a terminal.
 
+### If it is ever served, it is gated by default
+
+Arbitrary command, arguments, working directory and environment on the client's
+machine is not a capability to grant quietly. Serving `terminal/create` without
+review is the same posture as running an agent with permissions skipped, except
+the machine being trusted is the *user's* rather than the agent's.
+
+The gate already exists in the right shape. `run_command` here holds the call,
+shows the command text, and waits — the same treatment applies, with the whole
+request on the card: command, arguments, working directory, **and environment**.
+
+That last one matters more than it looks, and is the reason to be sceptical of
+screening as an alternative to review. **A screened command with an unscreened
+environment is not screened.** `PATH` decides which binary `make` is;
+`LD_PRELOAD` decides what any binary does; `NODE_OPTIONS` and friends run code
+before the program's first line. An allowlist that reads the command string and
+ignores `env` approves a name and executes something else.
+
+Command screening is weak on its own terms too. This project already learned it
+the hard way: `find` is innocuous until `-exec`, and a shell reaches the same
+place through quoting, a subshell, or `sh -c`. Pattern-matching a command line
+is defence in depth, not a boundary — the boundary is a person or a policy
+seeing the whole request before it runs.
+
+Which is where automation belongs, for anyone who wants it: not a static
+allowlist compiled into the client, but a decider that sees the full request in
+context and answers approve, refuse, or ask the human. The gate here already
+takes exactly that shape, so a supervisor is a decider implementation rather
+than new plumbing.
+
 ### Two directions, both possible, neither urgent
 
 Surfacing the bridge's own terminal and serving ACP's are separate features. Of
@@ -457,6 +487,33 @@ control arbitration and a permission model, all for a feature whose value is
 felt mostly when something else is already broken. Recorded here so the shape is
 known when it is wanted, rather than started because it sounded close to
 something else.
+
+### Deferred: how either would land in T3
+
+Design only. Both belong to a more automated setup than exists today, and
+building either now would be building for a shape that has not settled.
+
+**Serving ACP terminals** needs the surface whose absence is why the capability
+is declined: somewhere for a terminal nobody opened to appear, a list of live
+ones with what created each, and the approval card above wired to
+`terminal/create`. The pieces are a viewer, a lifecycle, and a gate that already
+exists in another form.
+
+**Watching the bridge's terminal** needs an attach channel, an emulator in the
+client, and — if more than one person can attach — the control arbitration
+sketched above. The side channel is the option that survives contact with the
+multi-party case.
+
+They share a viewer and nothing else, which is the correction this section
+exists to record. Build the viewer generically if either is built; do not build
+either because the other seemed close.
+
+The case that would justify both at once is the automated one: several machines,
+agents working unattended, and a person who needs to see what one is doing
+without interrupting it — plus a supervisor deciding the routine approvals so
+the person is asked only about the rest. That is a coherent destination and a
+long way from what is running today, which is one agent, one operator, and a
+debug flag that already answers the question.
 
 ## Planned hardening: built-ins through MCP
 
