@@ -392,82 +392,71 @@ including whatever it read on the way: file contents, tokens printed by a
 command, an error carrying a connection string. Sharing a terminal with a person
 is sharing that, and no permission model above it changes what is on the screen.
 
-### The surface this creates, and the ACP capability it unlocks
+### What ACP's terminal actually is, and why it is not this
 
-T3 has terminals, but they are ones a *user* opened; an agent-owned terminal has
-nowhere to appear, which is why the ACP `terminal` capability is currently
-declined rather than served. This design is that missing surface.
+Worth checking before building anything on the resemblance, because the
+resemblance is mostly in the word.
 
-The two are close enough to share almost everything, and different in one place
-that matters.
+`CreateTerminalRequest` is `{ command, args, cwd, env, outputByteLimit }`, and
+the full method set is `terminal/create`, `terminal/output`,
+`terminal/wait_for_exit`, `terminal/kill`, `terminal/release`. **There is no
+method for sending input.**
 
-**What ACP asks for.** `terminal/create`, `terminal/output`,
-`terminal/wait_for_exit`, `terminal/kill`, `terminal/release` — the agent asks
-the *client* to run something and to hand back what it produced. The runtime
-already exposes handlers for all of them; nothing registers them, because there
-was nowhere to put the result.
+So an ACP terminal is a **subprocess runner**, not a terminal: the agent says
+run this, polls for what it printed, waits or kills, and releases. Nothing can
+type into it — not the agent, not a person. It cannot host an interactive TUI,
+cannot be driven, and could not host `agy`.
 
-**What is the same.** A byte stream nobody typed into existence, rendered live,
-with a lifecycle that is not a person opening a tab. Watch and drive as separate
-grants. Handover. A record of who was driving, in the stream. Build that
-component once and an ACP terminal is another producer for it.
+Which means the earlier claim here — same surface, different producer — was too
+strong. A viewer for a non-interactive command's output is a log pane. The
+shared terminal is a live TTY with handover. They share "bytes appear over
+time" and diverge at everything that made the shared terminal interesting.
 
-**What differs, and it is the interesting part.** In the shared terminal the PTY
-lives in the bridge and *hosts the agent*. In an ACP terminal the PTY lives in
-T3 and hosts a command the agent asked for. Same surface, opposite ownership —
-so the surface should take a stream and a writer, and care about neither's
-provenance.
+**What it does give an agent** is worth stating plainly, since it is the reason
+`terminalAccess` is declined rather than served. Arbitrary command, arbitrary
+arguments, chosen working directory, and a chosen environment — on the client's
+machine. That is shell-equivalent authority there. Not control of T3 as an
+application, which has no API here; but a command can do whatever the user
+running T3 can do, which includes reading T3's own configuration and state. The
+distinction between "control of the app" and "control of the machine the app is
+on" does not survive contact with a shell.
 
-That ownership is not a choice; the protocol fixes it. `terminal/create`,
-`terminal/output`, `terminal/wait_for_exit` and `terminal/kill` are
-**client methods**: the agent calls them, the client serves them, and the ACP
-agent interface has no terminal method at all. So T3 cannot use ACP's terminal
-calls to reach a terminal living in the bridge, however natural that sounds —
-they only run the other way.
+The intended use is legible from the shape: an agent that has no shell where the
+code is — running remotely, or sandboxed — asking the machine that *does* have
+the code to run tests and report back. Useful, and a different feature from
+watching a terminal.
 
-Which means the two features overlap in surface and not in transport. Showing
-the bridge's own terminal needs a channel ACP does not define, and there are
-three honest options:
+### Two directions, both possible, neither urgent
 
-- **A `session/update` variant carrying terminal bytes.** Rides the notification
-  stream that already exists and already reaches T3, at the cost of a message
-  type no other ACP client understands.
-- **An extension method.** The runtime can send arbitrary methods, and ACP has
-  `_meta` for exactly this. Explicitly non-standard, and honest about it.
-- **A side channel from the bridge**: its own HTTP or WebSocket endpoint, which
-  T3 attaches to directly. No protocol changes, one more thing to authenticate,
-  and the option that composes with sharing the terminal to a second person.
+Surfacing the bridge's own terminal and serving ACP's are separate features. Of
+the first, there are two directions and this document does not pick one:
 
-The last is probably right, and for a reason beyond ACP: a terminal shared
-across networks is not a conversation between one client and one agent, and
-squeezing it through a session-scoped protocol would fight that shape the whole
-way.
+**Client-hosted (ACP's direction).** T3 owns a PTY; the agent asks it to run
+things. Standard, already specified, and gives the agent shell-equivalent
+authority on the client. It cannot show the agent's own terminal, because the
+agent's terminal is not the client's.
 
-Three consequences follow from that difference:
+**Agent-hosted (the other direction).** The bridge owns the PTY — it already
+does — and something attaches to watch or drive it. This is the one that shows
+what `agy` is doing, and ACP has no method for it, so it needs a channel of its
+own:
 
-**The agent is a driver.** It can send input through the protocol while a person
-is typing, which is the two-writers problem again with one writer that does not
-know it is in a race. So arbitration has to count the agent as a participant:
-when a person takes control the agent's writes are refused rather than
-interleaved, and it is told so — an agent whose keystrokes silently vanish will
-retry, and the retry is the confusion.
+- a `session/update` variant carrying terminal bytes, riding a stream that
+  already reaches T3, at the cost of a message no other ACP client understands;
+- an extension method, which ACP's `_meta` and the runtime's raw `request` both
+  allow, explicitly non-standard;
+- or a side channel from the bridge — its own endpoint, attached to directly.
+  No protocol change, one more thing to authenticate, and the only option that
+  composes with sharing a terminal to a second person, since that is not a
+  conversation between one client and one agent.
 
-**The command is a privileged action, and the card already exists.** An ACP
-terminal runs a command *as T3, on T3's machine*, which is exactly the authority
-that made `terminalAccess` worth declining. It is the same shape as
-`run_command` here: hold the call, show the command text, decide. The permission
-flow that carries a command string to an approval card is built and works, and
-would be the gate.
-
-**Lifetime is per-command, not per-session.** The agent's own terminal lives as
-long as the session; an ACP terminal is created for one command and released.
-The surface should not assume either — a list of live terminals with a source
-against each, some belonging to the agent's own process, some created on its
-behalf.
-
-That is a strong argument for building the shared terminal first and building it
-generically: a viewer that takes `(stream, writer, capabilities)` serves both,
-and the second one costs a set of handlers rather than a subsystem.
+**Neither is urgent.** The bridge works without either, and the visibility a
+shared terminal would give is available today through `BRIDGE_PTY_DEBUG` for
+anyone debugging. Building it means an emulator in a client, an attach protocol,
+control arbitration and a permission model, all for a feature whose value is
+felt mostly when something else is already broken. Recorded here so the shape is
+known when it is wanted, rather than started because it sounded close to
+something else.
 
 ## Planned hardening: built-ins through MCP
 
