@@ -90,7 +90,13 @@ export function makePolicy(source, options = {}) {
       if (!VERDICTS.has(rule?.action)) continue;
       const patterns = Array.isArray(rule.tools) ? rule.tools : [rule.tools];
       if (patterns.some((pattern) => typeof pattern === "string" && matches(pattern, tool))) {
-        return { verdict: rule.action, reason: rule.reason ?? `${DenyReason.POLICY}: rule for ${tool}` };
+        // The prefix wraps a custom reason rather than being replaced by one:
+        // without it a rule carrying its own text fell through to the
+        // human-refusal branch, and the agent was told a person had refused.
+        return {
+          verdict: rule.action,
+          reason: `${DenyReason.POLICY}: ${rule.reason ?? `rule for ${tool}`}`,
+        };
       }
     }
     return { verdict: fallback, reason: `${DenyReason.POLICY}: default (${fallback})` };

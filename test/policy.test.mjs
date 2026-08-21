@@ -91,7 +91,10 @@ test("withPolicy denies without asking, and the reason survives", async () => {
   );
   const decision = await gated(call("rm_rf"));
   assert.equal(decision.allow, false);
-  assert.equal(decision.reason, "never");
+  // The author's wording survives, now inside the prefix that tells the agent
+  // policy refused it rather than a person.
+  assert.match(decision.reason, /never/);
+  assert.match(decision.reason, /^denied-by-policy: /);
 });
 
 test("a resolver lets each session carry its own policy", async () => {
@@ -110,4 +113,14 @@ test("a resolver lets each session carry its own policy", async () => {
 
   await gated({ sessionId: "b", tool: "run_command" });
   assert.equal(asked, 1, "session b still asks");
+});
+
+test("a rule's own reason still says policy refused it", async () => {
+  const { denialMessage } = await import("../src/gate.js");
+  const policy = makePolicy({ rules: [{ tools: ["run_command"], action: "deny", reason: "no shells here" }] });
+  const { reason } = policy.decide({ tool: "run_command", args: {} });
+
+  assert.match(reason, /no shells here/, "the author's wording survives");
+  assert.match(denialMessage(reason), /policy refused/i);
+  assert.doesNotMatch(denialMessage(reason), /human reviewer/i, "no person saw this");
 });
