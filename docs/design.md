@@ -392,14 +392,57 @@ including whatever it read on the way: file contents, tokens printed by a
 command, an error carrying a connection string. Sharing a terminal with a person
 is sharing that, and no permission model above it changes what is on the screen.
 
-### The surface this creates
+### The surface this creates, and the ACP capability it unlocks
 
 T3 has terminals, but they are ones a *user* opened; an agent-owned terminal has
 nowhere to appear, which is why the ACP `terminal` capability is currently
-declined rather than served. This design is that missing surface. Once it
-exists, serving `terminal/create` for an ACP agent becomes an obvious next step
-rather than a new subsystem — which is an argument for building this one first,
-and for building it in a way the other can reuse.
+declined rather than served. This design is that missing surface.
+
+The two are close enough to share almost everything, and different in one place
+that matters.
+
+**What ACP asks for.** `terminal/create`, `terminal/output`,
+`terminal/wait_for_exit`, `terminal/kill`, `terminal/release` — the agent asks
+the *client* to run something and to hand back what it produced. The runtime
+already exposes handlers for all of them; nothing registers them, because there
+was nowhere to put the result.
+
+**What is the same.** A byte stream nobody typed into existence, rendered live,
+with a lifecycle that is not a person opening a tab. Watch and drive as separate
+grants. Handover. A record of who was driving, in the stream. Build that
+component once and an ACP terminal is another producer for it.
+
+**What differs, and it is the interesting part.** In the shared terminal the PTY
+lives in the bridge and *hosts the agent*. In an ACP terminal the PTY lives in
+T3 and hosts a command the agent asked for. Same surface, opposite ownership —
+so the surface should take a stream and a writer, and care about neither's
+provenance.
+
+Three consequences follow from that difference:
+
+**The agent is a driver.** It can send input through the protocol while a person
+is typing, which is the two-writers problem again with one writer that does not
+know it is in a race. So arbitration has to count the agent as a participant:
+when a person takes control the agent's writes are refused rather than
+interleaved, and it is told so — an agent whose keystrokes silently vanish will
+retry, and the retry is the confusion.
+
+**The command is a privileged action, and the card already exists.** An ACP
+terminal runs a command *as T3, on T3's machine*, which is exactly the authority
+that made `terminalAccess` worth declining. It is the same shape as
+`run_command` here: hold the call, show the command text, decide. The permission
+flow that carries a command string to an approval card is built and works, and
+would be the gate.
+
+**Lifetime is per-command, not per-session.** The agent's own terminal lives as
+long as the session; an ACP terminal is created for one command and released.
+The surface should not assume either — a list of live terminals with a source
+against each, some belonging to the agent's own process, some created on its
+behalf.
+
+That is a strong argument for building the shared terminal first and building it
+generically: a viewer that takes `(stream, writer, capabilities)` serves both,
+and the second one costs a set of handlers rather than a subsystem.
 
 ## Planned hardening: built-ins through MCP
 
