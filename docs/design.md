@@ -418,6 +418,31 @@ T3 and hosts a command the agent asked for. Same surface, opposite ownership —
 so the surface should take a stream and a writer, and care about neither's
 provenance.
 
+That ownership is not a choice; the protocol fixes it. `terminal/create`,
+`terminal/output`, `terminal/wait_for_exit` and `terminal/kill` are
+**client methods**: the agent calls them, the client serves them, and the ACP
+agent interface has no terminal method at all. So T3 cannot use ACP's terminal
+calls to reach a terminal living in the bridge, however natural that sounds —
+they only run the other way.
+
+Which means the two features overlap in surface and not in transport. Showing
+the bridge's own terminal needs a channel ACP does not define, and there are
+three honest options:
+
+- **A `session/update` variant carrying terminal bytes.** Rides the notification
+  stream that already exists and already reaches T3, at the cost of a message
+  type no other ACP client understands.
+- **An extension method.** The runtime can send arbitrary methods, and ACP has
+  `_meta` for exactly this. Explicitly non-standard, and honest about it.
+- **A side channel from the bridge**: its own HTTP or WebSocket endpoint, which
+  T3 attaches to directly. No protocol changes, one more thing to authenticate,
+  and the option that composes with sharing the terminal to a second person.
+
+The last is probably right, and for a reason beyond ACP: a terminal shared
+across networks is not a conversation between one client and one agent, and
+squeezing it through a session-scoped protocol would fight that shape the whole
+way.
+
 Three consequences follow from that difference:
 
 **The agent is a driver.** It can send input through the protocol while a person
