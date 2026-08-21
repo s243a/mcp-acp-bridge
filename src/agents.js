@@ -17,8 +17,66 @@
  * security upgrade, not a requirement.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 /** Assistant text arrives on stdout for CLIs run in one-shot print mode. */
 const textFromStdout = (chunk) => chunk;
+
+/** One line, because the real instruction arrives over MCP. */
+const DUAL_NUDGE =
+  "Call the next_task tool to get your task, carry it out, then call submit_result with your full answer.";
+
+/** Where a workspace states its rules, most specific first. */
+export const RULES_FILES = ["GEMINI.md", "AGENTS.md"];
+
+/** Big enough for real rules, small enough to sit in argv without comment. */
+export const MAX_RULES_CHARS = 4000;
+
+/**
+ * The workspace's own rules, read from disk.
+ *
+ * Agents load these hierarchically by themselves, so this is belt and braces —
+ * but the alternative, telling the agent to go and read the file, spends a tool
+ * call to learn something the bridge can read for free. Under a gate that tool
+ * call is an approval card raised before the user has typed anything, which is
+ * a poor way to open a session.
+ *
+ * @param {string} cwd
+ * @param {{readFile?: (path: string) => string}} [io]
+ */
+export function workspaceRules(cwd, { readFile = defaultReadFile } = {}) {
+  for (const name of RULES_FILES) {
+    let text;
+    try {
+      text = readFile(join(cwd, name)).trim();
+    } catch {
+      continue; // Absent or unreadable: the next candidate, then none at all.
+    }
+    if (!text) continue;
+    return text.length > MAX_RULES_CHARS
+      ? { name, text: `${text.slice(0, MAX_RULES_CHARS)}\n…[truncated]`, truncated: true }
+      : { name, text, truncated: false };
+  }
+  return null;
+}
+
+function defaultReadFile(path) {
+  return readFileSync(path, "utf8");
+}
+
+/**
+ * The `-i` argument: the workspace's rules, then what to do first.
+ *
+ * @param {string} nudge
+ * @param {string} cwd
+ * @param {{readFile?: (path: string) => string}} [io]
+ */
+export function buildInitialPrompt(nudge, cwd, io) {
+  const rules = cwd ? workspaceRules(cwd, io ?? {}) : null;
+  if (!rules) return nudge;
+  return `${rules.name} for this workspace:\n\n${rules.text}\n\nFollow it. ${nudge}`;
+}
 
 export const adapters = {
   /**
@@ -192,7 +250,7 @@ export const adapters = {
     // then carries only the nudge, ESC, and slash commands.
     turnsOverMcp: true,
     /** One line, because the real instruction arrives over MCP. */
-    nudge: "Call the next_task tool to get your task, carry it out, then call submit_result with your full answer.",
+    nudge: DUAL_NUDGE,
     mcpViaWorkspaceFile: true,
     deniesViaAgentHome: true,
     /**
@@ -238,7 +296,7 @@ export const adapters = {
     restrictToMcp: false,
     pty: true,
     turnsOverMcp: true,
-    nudge: "Call the next_task tool to get your task, carry it out, then call submit_result with your full answer.",
+    nudge: DUAL_NUDGE,
     mcpViaWorkspaceFile: true,
     deniesViaAgentHome: true,
     /** Offer execution and file access over MCP, so the gate sees what happens. */

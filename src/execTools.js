@@ -86,7 +86,7 @@ export function createExecTools({ resolveCwd, timeoutMs = DEFAULT_TIMEOUT_MS } =
     {
       name: "run_command",
       description:
-        "Run a shell command and return its output. Use this instead of any built-in command or terminal tool, including for running a file you have just written. Commands are reviewed before they run, so state the command exactly as it should execute.",
+        "Run a shell command and return its output. Use this instead of any built-in command or terminal tool, including for running a file you have just written. Commands are reviewed before they run, so state the command exactly as it should execute. When you show the output to the user, put it in a fenced code block: it is rendered as Markdown, so unfenced column-aligned output collapses into one unreadable line.",
       inputSchema: {
         type: "object",
         properties: {

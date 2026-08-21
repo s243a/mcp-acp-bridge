@@ -18,7 +18,7 @@ import { createFileTools } from "./fileTools.js";
 import { createTaskChannel } from "./taskChannel.js";
 import { prepareAgentHome } from "./agentHome.js";
 import { prepareWorkspace } from "./workspaceConfig.js";
-import { getAdapter } from "./agents.js";
+import { buildInitialPrompt, getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
 import { makePolicy, withPolicy } from "./policy.js";
 
@@ -35,6 +35,10 @@ import { makePolicy, withPolicy } from "./policy.js";
  */
 export async function startBridge(options = {}) {
   const adapter = getAdapter(options.agent ?? "claude");
+  // Set BRIDGE_INLINE_RULES=0 to withhold the workspace rules from the first
+  // turn. Only useful for answering "does the agent load them itself?" — put a
+  // codeword in the rules file and see whether it still comes back.
+  const inlineRules = process.env.BRIDGE_INLINE_RULES !== "0";
   const cwd = options.cwd ?? process.cwd();
   const log = options.log ?? (() => {});
 
@@ -223,7 +227,13 @@ export async function startBridge(options = {}) {
           command: adapter.command,
           args: adapter.buildSessionArgs({
             cwd: runtime.cwd ?? cwd,
-            ...(taskChannel ? { initialPrompt: adapter.nudge } : {}),
+            ...(taskChannel
+              ? {
+                  initialPrompt: inlineRules
+                    ? buildInitialPrompt(adapter.nudge, runtime.cwd ?? cwd)
+                    : adapter.nudge,
+                }
+              : {}),
           }),
           cwd: runtime.cwd ?? cwd,
           ...(runtime.home ? { env: { HOME: runtime.home.dir } } : {}),

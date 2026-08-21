@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { getAdapter, parseAgyLine } from "../src/agents.js";
+import { buildInitialPrompt, getAdapter, MAX_RULES_CHARS, parseAgyLine, workspaceRules } from "../src/agents.js";
 
 test("assistant text becomes a text record", () => {
   const record = parseAgyLine(
@@ -131,4 +131,34 @@ test("dual mode grants the built-ins it cannot be asked about, and no more", () 
   for (const verb of ["unsandboxed(*)", "escalate_admin(*)", "execute_url(*)"]) {
     assert.ok(!granted.includes(verb), `${verb} should still require approval`);
   }
+});
+
+test("the initial prompt carries the workspace's rules, so reading them costs no tool call", () => {
+  const files = { "/w/GEMINI.md": "# Rules\nFence command output." };
+  const readFile = (path) => {
+    if (!(path in files)) throw new Error("ENOENT");
+    return files[path];
+  };
+
+  const prompt = buildInitialPrompt("NUDGE.", "/w", { readFile });
+  assert.match(prompt, /GEMINI\.md for this workspace/);
+  assert.match(prompt, /Fence command output\./);
+  assert.ok(prompt.endsWith("NUDGE."), "the task instruction stays last");
+
+  // AGENTS.md is the fallback name, and absence is not an error: a workspace
+  // without rules gets the bare nudge rather than a failed session.
+  delete files["/w/GEMINI.md"];
+  files["/w/AGENTS.md"] = "# Other";
+  assert.match(buildInitialPrompt("NUDGE.", "/w", { readFile }), /AGENTS\.md for this workspace/);
+
+  delete files["/w/AGENTS.md"];
+  assert.equal(buildInitialPrompt("NUDGE.", "/w", { readFile }), "NUDGE.");
+});
+
+test("oversized rules are truncated rather than pushed whole into argv", () => {
+  const readFile = () => "x".repeat(MAX_RULES_CHARS + 500);
+  const rules = workspaceRules("/w", { readFile });
+  assert.equal(rules.truncated, true);
+  assert.ok(rules.text.length < MAX_RULES_CHARS + 20);
+  assert.match(rules.text, /truncated/);
 });

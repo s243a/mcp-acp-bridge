@@ -320,6 +320,42 @@ Selecting a model also resets agy's effort (a model switch showed
 axis in the same picker and is not exposed yet; it belongs with the other
 per-turn options if it is wanted.
 
+## The workspace's rules reach the agent in argv
+
+An agent driven through the bridge writes for a chat window, not a terminal, and
+nothing tells it so. The symptom was a directory listing arriving as one
+unreadable run-on line: Markdown joins consecutive lines into a paragraph, and
+the agent had emitted `ls -l` output with no fence around it. The same model
+formatted the same request three different ways across one thread, so this is
+not something a better prompt fixes once.
+
+The workspace already has a place to say such things — agy documents
+`GEMINI.md`, `AGENTS.md` and `.agents/rules/*.md` as its rules files. Two probes
+showed it does not load them in print mode: asked to quote their first heading
+it answered `NONE`, and asked what the workspace was for it answered `UNKNOWN`
+when the file's opening line says exactly that.
+
+So the bridge reads the rules itself and prepends them to the `-i` argument
+(`buildInitialPrompt`). The alternative — instructing the agent to go and read
+the file — was written first and discarded: it spends a tool call to learn
+something the bridge can read for free, and under a gate that tool call is an
+approval card raised before the user has typed anything. Rules are capped at
+`MAX_RULES_CHARS`, and a workspace without them gets the bare nudge.
+
+Verified by a codeword. The rules asked for `XYZZY` at the top of the first
+reply; it arrived, which distinguishes "the rules never got there" from "they
+got there and were ignored" — two failures that look identical from outside.
+
+One question stays open: whether agy loads these files in interactive mode even
+though it does not in print mode, which would make the inlining redundant.
+`BRIDGE_INLINE_RULES=0` withholds them so a codeword can answer it.
+
+A caution learned immediately. The first rule said to put command output in a
+fenced block, and the agent started dumping raw `ls -l` where it had previously
+written a tidy list of filenames — fixing the rendering by degrading the answer.
+Telling an agent *how* to present output is one instruction; telling it *what to
+show* is another, and conflating them costs more than it buys.
+
 ## Designed, not built: a shared terminal
 
 In dual mode the agent already runs under a PTY, and that terminal is
