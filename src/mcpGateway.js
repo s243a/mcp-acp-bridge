@@ -23,7 +23,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { allowAll } from "./gate.js";
+import { allowAll, denialMessage } from "./gate.js";
 import { TRANSPORT_TOOLS } from "./taskChannel.js";
 
 const SERVER_INFO = { name: "mcp-acp-bridge", version: "0.0.1" };
@@ -81,8 +81,8 @@ export function createGateway(options = {}) {
       const decision = TRANSPORT_TOOLS.has(name) ? { allow: true } : await gate(call);
       if (!decision.allow) {
         onToolCall?.({ ...call, phase: "denied", reason: decision.reason });
-        // Legible to the agent so it can adapt rather than retry blindly.
-        return errorResult(`permission denied: ${decision.reason}`);
+        // Says who refused and whether trying again is worth anything.
+        return errorResult(denialMessage(decision.reason));
       }
 
       try {

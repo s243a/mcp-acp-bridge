@@ -68,7 +68,12 @@ test("a denied call reaches the agent as a readable tool error", async () => {
     arguments: { secret: "forbidden" },
   });
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /permission denied/);
+  // The reason travels with the refusal, and the refusal says not to retry —
+  // an agent that rewords a denied call asks the reviewer the same question
+  // twice.
+  assert.match(result.content[0].text, /refused/i);
+  assert.match(result.content[0].text, /policy/);
+  assert.match(result.content[0].text, /do not run it again/i);
   await client.close();
 });
 

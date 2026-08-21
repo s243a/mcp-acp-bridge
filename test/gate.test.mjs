@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DenyReason, makeGate } from "../src/gate.js";
+import { denialMessage, DenyReason, makeGate } from "../src/gate.js";
 
 test("allows when the decider allows", async () => {
   const gate = makeGate(async () => ({ allow: true }));
@@ -60,3 +60,18 @@ test("reports every decision to the observer", async () => {
 function call(overrides = {}) {
   return { sessionId: "s", tool: "t", args: {}, ...overrides };
 }
+
+test("a refusal tells the agent a person said no, so it stops rather than rewording", () => {
+  const refused = denialMessage(DenyReason.CLIENT);
+  assert.match(refused, /human reviewer refused/i);
+  assert.match(refused, /do not retry a reworded or requoted variant/i);
+
+  // A timeout is the one case where nobody refused, so trying again is fair.
+  const timedOut = denialMessage(DenyReason.TIMEOUT);
+  assert.match(timedOut, /nobody refused/i);
+  assert.match(timedOut, /try once more/i);
+
+  // An unreachable decider is not a refusal either, but retrying will not help.
+  assert.match(denialMessage(`${DenyReason.ERROR}: boom`), /could not be reached/i);
+  assert.equal(denialMessage(undefined), refused, "an absent reason is treated as a refusal");
+});
