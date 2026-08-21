@@ -75,3 +75,18 @@ test("a refusal tells the agent a person said no, so it stops rather than reword
   assert.match(denialMessage(`${DenyReason.ERROR}: boom`), /could not be reached/i);
   assert.equal(denialMessage(undefined), refused, "an absent reason is treated as a refusal");
 });
+
+test("a policy refusal is not reported as a person refusing", () => {
+  const refused = denialMessage(`${DenyReason.POLICY}: default (deny)`);
+  assert.match(refused, /policy refused/i);
+  assert.doesNotMatch(refused, /human reviewer/i, "no person saw it, so do not claim one did");
+
+  // The difference that matters: a closed route is not a closed goal. Telling
+  // the agent to stop and ask would forbid the move the design defends —
+  // reaching the same end another way, still reviewed.
+  assert.doesNotMatch(refused, /do not retry a reworded/i);
+  assert.match(refused, /another route/i);
+
+  // And a human refusal still says stop.
+  assert.match(denialMessage(DenyReason.CLIENT), /human reviewer refused/i);
+});

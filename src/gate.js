@@ -15,6 +15,7 @@ export const DEFAULT_TIMEOUT_MS = 120_000;
 /** Reasons a call was denied, for logs and for the message handed to the agent. */
 export const DenyReason = {
   CLIENT: "denied-by-client",
+  POLICY: "denied-by-policy",
   TIMEOUT: "no-decision-before-timeout",
   ERROR: "decider-failed",
 };
@@ -73,6 +74,17 @@ export function denialMessage(reason) {
   if (detail.startsWith(DenyReason.ERROR)) {
     return `The reviewer could not be reached (${detail}). Do not retry; report this to the user.`;
   }
+  if (detail.startsWith(DenyReason.POLICY)) {
+    // Not a person, and the difference matters: a policy refusal closes one
+    // route, not the goal. Telling the agent to stop and ask would forbid the
+    // legitimate move — reaching the same end another way, where a human still
+    // reviews it — which is the behaviour "Three kinds of no" argues for.
+    return (
+      `Policy refused this call (${detail}). No person saw it. Repeating it will fail the same ` +
+      `way, but another route to the same goal is not forbidden — one will still be reviewed by a ` +
+      `human before it runs.`
+    );
+  }
   return (
     `A human reviewer refused this call (${detail}). Do not run it again, and do not retry a ` +
     `reworded or requoted variant — the answer will be the same. Say what you were trying to ` +
@@ -102,4 +114,4 @@ function withTimeout(promise, ms) {
 export const allowAll = makeGate(async () => ({ allow: true }));
 
 /** A gate that denies everything, with the reason surfaced to the agent. */
-export const denyAll = makeGate(async () => ({ allow: false, reason: "denied by policy" }));
+export const denyAll = makeGate(async () => ({ allow: false, reason: `${DenyReason.POLICY}: deny all` }));

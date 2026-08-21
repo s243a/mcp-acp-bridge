@@ -282,11 +282,21 @@ variant will get the same answer. This is settled: a denied
 asking the reviewer the same question twice. Rewording spends the reviewer's
 attention, not the agent's, and a refusal is not a syntax error.
 
-**Policy refused.** Confinement is the case that exists today. The agent is told
-the path is outside the workspace and is *not* told to stop — and in practice it
-routes around, reaching the same file through `run_command`. Observed: a
-`write_file /tmp/escape.txt` refused by confinement, then
+**Policy refused.** Two shapes, and they arrive by different paths. Confinement
+answers inside the tool — `path is outside the workspace` is a handler result,
+never a gate decision — while a policy rule refuses at the gate. Neither is a
+person, and both now say so: the message names policy as the source, states that
+repeating the same call will fail identically, and does *not* forbid another
+route, because a route that still passes a human is not an evasion.
+
+Observed: a `write_file /tmp/escape.txt` refused by confinement, then
 `echo "free at last" > /tmp/escape.txt` eight seconds later, approved, written.
+
+The gate half was wrong until review caught it. Policy denials carried reasons
+like `policy default (deny)` and fell through to the human-refusal branch, so
+the agent was told a person had refused and to stop asking — the opposite of
+what this section argues. No shipped preset emits `deny`, so only a custom
+policy reached it, but the code and the doc disagreed.
 
 **Nobody answered.** A timeout is the one case where trying again is reasonable,
 since no decision was made. Said explicitly, so it is not mistaken for a

@@ -334,9 +334,7 @@ const SALIENT_KEYS = ["command", "path", "file", "url", "query", "name"];
  *
  * A card headed `read_file` tells nobody anything: the entire argument for
  * routing work through MCP is that the reviewer sees what will happen, and the
- * tool's name is the part they already knew. Backticks are deliberate — clients
- * pull a quoted string out of a title when they have nowhere better to look for
- * a command.
+ * tool's name is the part they already knew.
  *
  * @param {{tool: string, args?: Record<string, unknown>}} call
  */

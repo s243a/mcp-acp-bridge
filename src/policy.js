@@ -16,6 +16,8 @@
  * everything rather than inheriting whatever the file happened to contain.
  */
 
+import { DenyReason } from "./gate.js";
+
 export const VERDICTS = new Set(["allow", "ask", "deny"]);
 
 /**
@@ -88,10 +90,10 @@ export function makePolicy(source, options = {}) {
       if (!VERDICTS.has(rule?.action)) continue;
       const patterns = Array.isArray(rule.tools) ? rule.tools : [rule.tools];
       if (patterns.some((pattern) => typeof pattern === "string" && matches(pattern, tool))) {
-        return { verdict: rule.action, reason: rule.reason ?? `policy rule for ${tool}` };
+        return { verdict: rule.action, reason: rule.reason ?? `${DenyReason.POLICY}: rule for ${tool}` };
       }
     }
-    return { verdict: fallback, reason: `policy default (${fallback})` };
+    return { verdict: fallback, reason: `${DenyReason.POLICY}: default (${fallback})` };
   }
 
   return { decide, describe: () => ({ rules, default: fallback }) };
