@@ -271,6 +271,59 @@ That is the same layering as everywhere else here. Confinement where the shape
 of the call allows it, review where it does not, and an OS sandbox when a real
 boundary is wanted rather than defence in depth.
 
+## Three kinds of no
+
+Not every refusal means the same thing, and an agent that treats them alike gets
+one of them wrong. What the bridge currently says, and why:
+
+**A person refused.** The message says so, and says that a reworded or requoted
+variant will get the same answer. This is settled: a denied
+`find . -name '*.md'` came straight back with double quotes instead of single,
+asking the reviewer the same question twice. Rewording spends the reviewer's
+attention, not the agent's, and a refusal is not a syntax error.
+
+**Policy refused.** Confinement is the case that exists today. The agent is told
+the path is outside the workspace and is *not* told to stop — and in practice it
+routes around, reaching the same file through `run_command`. Observed: a
+`write_file /tmp/escape.txt` refused by confinement, then
+`echo "free at last" > /tmp/escape.txt` eight seconds later, approved, written.
+
+**Nobody answered.** A timeout is the one case where trying again is reasonable,
+since no decision was made. Said explicitly, so it is not mistaken for a
+refusal.
+
+### Whether the second one is right — open
+
+The workaround is defensible. Confinement is a default about where files
+normally go, not a claim about what a human may authorise; the user asked for a
+file outside the workspace, and the agent found a route that put the decision in
+front of them. An agent that gave up would be less useful and no safer, since
+the user could run the command themselves.
+
+What is harder to defend is that **the workaround does not say it is one**. The
+card read `run_command echo "free at last" > /tmp/escape.txt` with nothing
+marking it as reaching what confinement had just refused. In a test the reviewer
+knows. Twenty minutes into a real session they do not, and that card is
+indistinguishable from any other `echo`.
+
+Three ways to go, none chosen:
+
+- **Leave it.** Every step was reviewed and approved; nothing happened in the
+  dark. Costs nothing, and is where we are.
+- **Annotate.** Remember paths refused by confinement briefly, and mark a later
+  call whose text contains one: *reaches `/tmp/escape.txt`, refused as outside
+  the workspace 8s ago*. Adds information, decides nothing — a false positive
+  costs a line of text, a false negative leaves today's behaviour. Generalises
+  to flagging a shell command that reaches a file whose `write_file` a human
+  denied, which is currently invisible.
+- **Block.** Refuse shell commands that mention a refused path. Rejected for
+  now: it means parsing shell text to make a security decision, the same
+  guesswork avoided in the retry fix, and it removes the ability to work around
+  a default deliberately.
+
+**Subject to change.** The right answer depends on how much a reviewer is
+expected to hold in their head, and that is not yet known from use.
+
 ## Two permission channels
 
 Permission questions reach the bridge two ways, and both end at the same policy.
@@ -619,7 +672,11 @@ echo file contents back through the tool channel.
 1. Can `agy` run with built-in tools disabled or restricted to MCP-provided
    ones?
 2. Does any target agent silently fall back to a built-in when an MCP tool
-   fails? That would punch a hole through the gate.
+   fails? That would punch a hole through the gate. **Partly answered:** agy
+   falls back, but to another *MCP* tool rather than a built-in — a refused
+   `write_file` became a `run_command` reaching the same path — so the gate
+   still saw it and the human still approved it. Whether that fallback should
+   announce itself is open; see "Three kinds of no".
 3. Should one bridge process serve many concurrent sessions, or one process per
    session? Per-session paths permit the former; per-process is simpler and may
    be enough.
