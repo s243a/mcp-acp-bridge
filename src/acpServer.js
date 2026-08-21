@@ -101,9 +101,12 @@ export function createAcpServer(options) {
         emitTool: (record) => {
           const toolCall = {
             toolCallId: record.id,
-            title: record.name,
+            // Same reasoning as the approval card: a transcript full of bare
+            // tool names says what kind of thing happened and never what.
+            title: describeCall({ tool: record.name, args: record.args }),
             kind: "other",
             status: record.status,
+            rawInput: record.args ?? {},
             content: [
               { type: "content", content: { type: "text", text: prettyArgs(record.args) } },
             ],
@@ -228,6 +231,10 @@ export function createAcpServer(options) {
         title: describeCall(call),
         kind: "other",
         status: "pending",
+        // The structured form, which is what a client reads when it wants the
+        // command rather than a sentence about it. Sending only `content` left
+        // clients with a card headed by a bare tool name.
+        rawInput: call.args ?? {},
         content: [{ type: "content", content: { type: "text", text: prettyArgs(call.args) } }],
       },
       options: PERMISSION_OPTIONS,
@@ -319,10 +326,44 @@ function promptToText(prompt) {
     .join("\n");
 }
 
+/** Arguments worth putting in a title, most identifying first. */
+const SALIENT_KEYS = ["command", "path", "file", "url", "query", "name"];
+
+/**
+ * What this call is *about*, in one line.
+ *
+ * A card headed `read_file` tells nobody anything: the entire argument for
+ * routing work through MCP is that the reviewer sees what will happen, and the
+ * tool's name is the part they already knew. Backticks are deliberate — clients
+ * pull a quoted string out of a title when they have nowhere better to look for
+ * a command.
+ *
+ * @param {{tool: string, args?: Record<string, unknown>}} call
+ */
+function summariseArgs(call) {
+  const args = call.args ?? {};
+  for (const key of SALIENT_KEYS) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) {
+      const trimmed = value.trim();
+      return trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
+    }
+  }
+  const first = Object.entries(args).find(([, value]) => typeof value === "string" && value.trim());
+  return first ? `${first[0]}=${String(first[1]).slice(0, 80)}` : "";
+}
+
 function describeCall(call) {
+  const about = summariseArgs(call);
+  // Deliberately unquoted. A client looking for a command in a title takes the
+  // first backticked run it finds, so `write_file \`notes.md\`` reduces to
+  // `notes.md` and the card asks you to approve a markdown file rather than a
+  // write to one. Commands do not need the hint: their `rawInput.command` is
+  // read before any title is consulted.
+  const titled = about ? `${call.tool} ${about}` : `${call.tool}`;
   // A request that arrived on the terminal says so on the card itself: the
   // approval still works, and the anomaly would otherwise go unnoticed.
-  return call.viaTerminal ? `${call.tool} (asked on the terminal)` : `${call.tool}`;
+  return call.viaTerminal ? `${titled} (asked on the terminal)` : titled;
 }
 
 /**
