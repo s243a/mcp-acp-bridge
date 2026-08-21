@@ -515,6 +515,50 @@ the person is asked only about the rest. That is a coherent destination and a
 long way from what is running today, which is one agent, one operator, and a
 debug flag that already answers the question.
 
+## Deferred: a supervisor as the decider
+
+Design only, and cheaper than it sounds, because the seam already exists. Every
+permission here passes through one decider — `makeGate` wraps a policy, and the
+policy falls through to a human. A supervisor is another implementation of that
+interface, not new plumbing.
+
+**It answers three ways, not two.** Approve, refuse, or *pass to the human*.
+The third is what makes it worth having: a supervisor that must decide
+everything is one that will be wrong about something, while one that can defer
+handles the routine and escalates what it does not recognise. The failure to
+design out is the supervisor that quietly approves rather than admitting it is
+unsure.
+
+**It chooses how much to read.** A permission request alone is thin context —
+`run_command` with a command string says what will happen and not why. The
+useful supervisor reads backwards from the tail of the conversation, and how far
+is its own decision, since a request that looks alarming in isolation is often
+obvious given the two turns before it.
+
+**And which channel.** The bridge keeps these separate, so a supervisor can ask
+for what suits the question:
+
+- the **aggregate**: what the client would show a person, which is the same view
+  the human escalation would get;
+- the **tool channel**: MCP calls and their arguments, exact and structured;
+- the **terminal**: what the agent's own screen showed, which is where the
+  answer lives when the question is "what state is it actually in".
+
+Reading the tail rather than the whole conversation is a cost decision as much
+as a relevance one — supervision is per-request, and a supervisor that re-reads
+everything each time is one nobody leaves switched on.
+
+**What it must not become.** A supervisor is a policy, not an authority: its
+approvals are bounded by what the profile already allowed, exactly as a human's
+are. It cannot widen a grant, and a request the policy would have refused
+outright never reaches it. Otherwise "ask the supervisor" becomes a way around
+the rules rather than a way of applying them.
+
+Deferred because it costs tokens per decision and the current shape — one agent,
+one operator — has a human close enough to ask. It becomes worth building at the
+point where nobody is watching, which is the same point the shared terminal
+becomes worth building, and for the same reason.
+
 ## Planned hardening: built-ins through MCP
 
 Disabling an agent's built-in file and shell tools and supplying equivalents as
