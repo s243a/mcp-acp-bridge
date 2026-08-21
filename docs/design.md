@@ -680,3 +680,29 @@ echo file contents back through the tool channel.
 3. Should one bridge process serve many concurrent sessions, or one process per
    session? Per-session paths permit the former; per-process is simpler and may
    be enough.
+4. **Read-only commands still stop the reviewer.** Under `review-consequential`
+   a `read_file` goes through but `ls` does not, because `run_command` is a
+   single tool spanning `ls` to `rm -rf` and a policy keyed on tool names cannot
+   split it. Classifying by command text is not an option — `ls -la; rm -rf ~`
+   defeats any prefix match.
+
+   A confined `list_dir` was considered and **rejected for now**: it handles one
+   command and invites the next (`grep`, `find`, `head`), and every tool
+   description is paid for in every turn's context — a permanent cost for a
+   narrow gain. `COMMON_READ_TOOLS` names `list_dir` already, so the preset
+   promises something the bridge does not provide; that mismatch is the thing to
+   fix, by either offering it or dropping the name.
+
+   Worth looking at how sciREPL Pro models permissions before designing this —
+   it has solved a similar problem, subject to what is publishable.
+5. **A cancelled turn leaves no trace.** `stopReason: "cancelled"` is returned
+   correctly, but nothing is emitted, so the thread shows a prompt with no
+   answer and no marker. A failed turn already emits `[agent failed: …]`, which
+   suggests the silence is an oversight. Partial screen text is *not* the answer:
+   a redrawing TUI shreds prose, which is why it stays out of the transcript.
+6. **`allow-always` is broader than it reads.** It keys on the tool name, so one
+   click on a `run_command` card allows every command for the rest of the
+   session and later cards stop appearing. Confined tools (`read_file`,
+   `write_file`) have a real boundary and are defensible; the shell does not.
+   Options: drop it for `run_command`, exact-match on canonical arguments, or
+   relabel it so the breadth is on the button.
