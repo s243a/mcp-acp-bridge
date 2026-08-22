@@ -683,6 +683,17 @@ differently for no reason anyone could defend. It also cannot live in the peer
 fabric at all: the payload is sealed, so nothing out there can see an ACP
 permission option.
 
+A remembered allow is a **cache of a decision, not a grant**. It is re-checked
+against the policy each time it is used, so a session whose policy is replaced
+mid-flight — which per-origin policy makes ordinary — stops bypassing review
+under rules that no longer permit it. The same asymmetry as everywhere else: a
+refusal binds carefully, so an allow must not bind harder than what allowed it.
+
+The list is matched by **exact name**. Patterns would let `read_` opt in a future
+`read_secrets` that nobody considered, and this project's own rule is that
+wildcards belong on locations and never on identities — a tool name is closer to
+an identity than to a path.
+
 Two properties worth keeping. The default list is the **confined** tools —
 `read_file` and `write_file` are bounded by the workspace, so remembering them
 is a bounded promise, while the shell is how an agent left the workspace in
