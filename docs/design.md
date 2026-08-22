@@ -614,6 +614,45 @@ the person is asked only about the rest. That is a coherent destination and a
 long way from what is running today, which is one agent, one operator, and a
 debug flag that already answers the question.
 
+## Designed, not built: policy by source and destination
+
+Today a policy answers one question — may this tool run — and the answer is the
+same whoever asked. That holds while the only client is a person at this machine.
+It stops holding the moment a tunnel delivers a turn from somewhere else.
+
+The peer fabric this fork is built alongside carries a sealed payload to a named
+local endpoint and hands over two things: bytes it cannot read, and an identity
+it verified. That identity is what makes a second axis possible.
+
+**Source is the verified origin, not the socket.** Bytes arriving on a local
+endpoint say nothing by themselves — every tunnel looks like localhost. What
+distinguishes a phone from the machine you are sitting at is the key that signed
+the request, checked end to end rather than inferred from the connection. A route
+is a claim by whoever reports it; a signature is not. Where the immediate peer
+differs from the origin, the request was relayed, and "refuse relayed agent
+traffic" becomes expressible without the bridge understanding topology at all.
+
+**Destination is the workspace.** Sessions already carry a `cwd`, so this cut
+exists in the model already. It is the difference between letting a phone poke at
+a scratch repo and letting it into the one with credentials in it — and it bounds
+a remote client by *what it can reach* rather than only by what it may call.
+
+**Method policy is a third axis, and belongs here.** ACP method names are a
+closed, enumerable set, so refusing `session/set_config_option` from a remote
+client is exact — none of the guesswork that made matching shell commands
+unsound. What is not bounded is content: prompt text, tool arguments, prose.
+Filtering on that would be guessing at meaning, and a filter that guesses fails
+quietly toward permitting.
+
+That allowlist refuses by default and lives here rather than in the fabric, for
+the same reason everything else in this section does: **the bridge is the only
+place the payload is plaintext.** It is also why a supervisor belongs here rather
+than at the peer boundary — see below.
+
+None of this is built. It is written down because the shape of the policy system
+decides whether it can be added later without a rewrite: rules keyed only on tool
+name have nowhere to put an origin.
+
 ## Deferred: a supervisor as the decider
 
 Design only, and cheaper than it sounds, because the seam already exists. Every
