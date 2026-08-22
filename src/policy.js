@@ -131,7 +131,11 @@ export function makePolicy(source, options = {}) {
    *
    * @param {string} tool
    */
-  const mayRemember = (tool) => remember.some((pattern) => matches(pattern, tool));
+  // Exact names, not patterns. `matches` would let `read_` opt in a future
+  // `read_secrets` that nobody considered — and this project's own rule is that
+  // wildcards belong on locations and never on identities. A tool name is closer
+  // to an identity than to a path.
+  const mayRemember = (tool) => remember.includes(tool);
 
   return { decide, mayRemember, describe: () => ({ rules, default: fallback, remember }) };
 }

@@ -234,7 +234,17 @@ export function createAcpServer(options) {
     const session = sessions.get(call.sessionId);
     const toolCallId = `call-${randomUUID()}`;
 
-    // An "allow for this session" answer applies without re-asking.
+    // An "allow for this session" answer applies without re-asking — but only
+    // while the policy that permitted it still would. The set is a cache of a
+    // decision, not a grant that outlives its reason: a session whose policy is
+    // replaced mid-flight (which per-origin policy makes ordinary) must not keep
+    // bypassing review under rules that no longer permit it.
+    //
+    // The same asymmetry as everywhere else: a refusal binds carefully, so an
+    // allow must not bind harder than the thing that allowed it.
+    if (session?.alwaysAllowed.has(call.tool) && !mayRemember({ sessionId: call.sessionId, tool: call.tool })) {
+      session.alwaysAllowed.delete(call.tool);
+    }
     if (session?.alwaysAllowed.has(call.tool)) {
       emitToolCall(call.sessionId, {
         toolCallId,

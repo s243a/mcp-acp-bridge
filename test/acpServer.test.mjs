@@ -277,3 +277,25 @@ test("allow-always is withheld where it has no boundary", async () => {
   await gate({ sessionId, tool: "run_command", args: { command: "rm -rf /" } });
   assert.equal(askedAgain, true, "answering allow-always for an unoffered tool must not stick");
 });
+
+test("a remembered allow does not outlive the policy that permitted it", async () => {
+  let permitted = true;
+  const { server, client } = connect({ mayRemember: () => permitted });
+  const sessionId = await newSession(client);
+
+  let asked = 0;
+  client.on("session/request_permission", () => {
+    asked += 1;
+    return { outcome: { outcome: "selected", optionId: "allow-always" } };
+  });
+
+  const gate = makeGate(server.decide);
+  await gate({ sessionId, tool: "read_file", args: {} });
+  await gate({ sessionId, tool: "read_file", args: {} });
+  assert.equal(asked, 1, "remembered while the policy permits it");
+
+  // The session's policy is replaced — which per-origin policy makes ordinary.
+  permitted = false;
+  await gate({ sessionId, tool: "read_file", args: {} });
+  assert.equal(asked, 2, "and asks again once it no longer would");
+});
