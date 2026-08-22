@@ -636,8 +636,8 @@ traffic" becomes expressible without the bridge understanding topology at all.
 thing. A workspace — sessions already carry a `cwd`, so that cut exists today,
 and it is the difference between letting a phone poke at a scratch repo and
 letting it into the one with credentials in it. A machine, once a turn can
-arrive from elsewhere. A URL, for anything that fetches. A named endpoint, for a
-tunnel.
+arrive from elsewhere. A URL, for anything that fetches. An IP address, for
+anything that connects.
 
 **Wildcards belong on locations and never on identities.** A URL and a path are
 hierarchical, so `https://api.example.com/*` means something a person can
@@ -646,6 +646,26 @@ and `prod-*` matches a naming convention rather than a set of machines — anyon
 who can choose a name joins the set. That is the same reason blocking prefers
 keys: a rename must not be a way in. So machines match exactly, by key where one
 is held; locations may be patterned.
+
+**An IP range is written in CIDR, not with a star.** `192.168.1.*` is a string
+pattern wearing a network's clothes: it also matches `192.168.10.5` and
+`192.168.100.7`, and it has nothing to say about IPv6 at all. `192.168.1.0/24`
+means one thing, is comparable by arithmetic rather than by text, and has an
+IPv6 spelling. Anything matching addresses as strings is wrong.
+
+**An address says where, never who.** A rule about `10.0.0.5` is a rule about
+whatever holds that lease today — this project already documents a DHCP lease
+turning over as the ordinary cause of "answered by someone else". So an IP rule
+is a reachability bound, not an identity check: usable for "never leave this
+subnet", useless for "only my laptop".
+
+**And a destination rule about addresses has to survive resolution.** If a rule
+refuses `10.0.0.0/8`, a caller passing a hostname that resolves there must be
+refused too, so the name is resolved *before* the decision. That is not
+sufficient on its own: DNS can answer differently the second time, so the
+connection must be made to the address that was checked rather than resolved
+again afterwards. Checking a name and then dialling it is the same rebinding
+problem the control API already had, one layer down.
 
 **And a URL pattern must match parsed components, not text.** Prefix-matching
 `https://good.com` accepts `https://good.com.evil.com`, which is the same class
