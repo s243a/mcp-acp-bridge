@@ -26,6 +26,31 @@ export const PERMISSION_OPTIONS = [
   { optionId: "reject-once", name: "Deny", kind: "reject_once" },
 ];
 
+/**
+ * The choices offered for one call.
+ *
+ * "Allow for this session" is withheld where it has no boundary. The label
+ * describes *duration* and says nothing about *breadth* — clicking it on a card
+ * reading `run_command ls -la` does not allow `ls`, it stops the review of
+ * commands entirely, and the later ones are never shown. For a confined tool
+ * that is a bounded promise; for a shell it is not one at all.
+ *
+ * Which tools qualify is policy, and policy is resolved from the *call* — the
+ * session it belongs to, and through that the origin that opened it and the
+ * workspace it targets. Never from how the payload arrived: a turn that came
+ * down a tunnel and one typed at this machine are the same question, and a
+ * setting keyed on transport would answer them differently for no reason a
+ * person could defend.
+ *
+ * @param {(call: {sessionId: string, tool: string}) => boolean} mayRemember
+ * @param {{sessionId: string, tool: string}} call
+ */
+export function optionsFor(mayRemember, call) {
+  return mayRemember(call)
+    ? PERMISSION_OPTIONS
+    : PERMISSION_OPTIONS.filter((option) => option.optionId !== "allow-always");
+}
+
 const ALLOWING_OPTIONS = new Set(["allow-once", "allow-always"]);
 
 /**
@@ -39,6 +64,13 @@ const ALLOWING_OPTIONS = new Set(["allow-once", "allow-always"]);
  * }} options
  */
 export function createAcpServer(options) {
+  // Whether a tool may be remembered is a policy question, the bridge holds the
+  // policy, and the policy is per session — which is what makes it answerable by
+  // source and destination later rather than by transport. Defaulting to "no"
+  // keeps a host that never wires this from handing out session-wide permission
+  // by omission.
+  const mayRemember = options.mayRemember ?? (() => false);
+
   const peer = createPeer({
     input: options.input ?? process.stdin,
     output: options.output ?? process.stdout,
@@ -237,7 +269,7 @@ export function createAcpServer(options) {
         rawInput: call.args ?? {},
         content: [{ type: "content", content: { type: "text", text: prettyArgs(call.args) } }],
       },
-      options: PERMISSION_OPTIONS,
+      options: optionsFor(mayRemember, { sessionId: call.sessionId, tool: call.tool }),
     });
 
     const optionId = readOutcome(response);
@@ -246,7 +278,12 @@ export function createAcpServer(options) {
       return { allow: false, reason: optionId ? "denied by client" : "cancelled by client", toolCallId };
     }
 
-    if (optionId === "allow-always") session?.alwaysAllowed.add(call.tool);
+    // Asked again rather than trusted: the option list is what a client was
+    // told it may send, and nothing stops one answering `allow-always` anyway.
+    // An answer we did not offer is honoured as a single allow.
+    if (optionId === "allow-always" && mayRemember({ sessionId: call.sessionId, tool: call.tool })) {
+      session?.alwaysAllowed.add(call.tool);
+    }
     emitToolCallUpdate(call.sessionId, { toolCallId, status: "in_progress" });
     return { allow: true, reason: optionId, toolCallId };
   }

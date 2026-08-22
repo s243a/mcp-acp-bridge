@@ -131,6 +131,13 @@ export async function startBridge(options = {}) {
     output: options.output,
     onError: (error, method) => log(`[acp] ${method} failed: ${error?.message}`),
 
+    // Same resolution the gate uses: the session's policy, falling back to the
+    // default. Source and destination are properties of a session, so keying on
+    // it is what lets "may this be remembered" become "may *this peer*, for
+    // *this workspace*" without moving the question anywhere.
+    mayRemember: ({ sessionId, tool }) =>
+      (runtimes.get(sessionId)?.policy ?? defaultPolicy).mayRemember(tool),
+
     createSession: () => {
       const session = gateway.openSession();
       const url = server.url(session.token);

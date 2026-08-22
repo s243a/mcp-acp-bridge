@@ -36,16 +36,31 @@ export const COMMON_READ_TOOLS = [
   "read_resource",
 ];
 
+/**
+ * Tools where "allow for this session" has a boundary.
+ *
+ * `read_file` and `write_file` are confined to the workspace, so remembering
+ * them bounds what the answer can reach. `run_command` is not confined — the
+ * shell is how an agent left the workspace in testing — so one click there is
+ * not "allow this command" but "stop reviewing commands", and the later ones
+ * are not shown at all.
+ *
+ * Deliberately a list rather than a rule about confinement: a future tool is
+ * opted in by someone who thought about it, not by matching a name.
+ */
+export const REMEMBERABLE_TOOLS = ["read_file", "write_file"];
+
 export const PRESETS = {
   /** Ask about everything. The safe default and the supervision posture. */
-  "review-everything": { rules: [], default: "ask" },
+  "review-everything": { rules: [], default: "ask", remember: REMEMBERABLE_TOOLS },
   /** Let reads through; stop for anything that changes something. */
   "review-consequential": {
     rules: [{ tools: COMMON_READ_TOOLS, action: "allow" }],
     default: "ask",
+    remember: REMEMBERABLE_TOOLS,
   },
   /** Approve everything. Only sensible when something else is the gate. */
-  "allow-all": { rules: [], default: "allow" },
+  "allow-all": { rules: [], default: "allow", remember: [] },
 };
 
 /** `write_*` matches a rule of `write_`; `*` matches anything. */
@@ -102,7 +117,23 @@ export function makePolicy(source, options = {}) {
     return { verdict: fallback, reason: `${DenyReason.POLICY}: default (${fallback})` };
   }
 
-  return { decide, describe: () => ({ rules, default: fallback }) };
+  // Which tools may be remembered for a session. Explicit `[]` means none —
+  // distinct from unset, which takes the safe list rather than everything.
+  const remember = Array.isArray(config.remember) ? config.remember : REMEMBERABLE_TOOLS;
+
+  /**
+   * May "allow for this session" be offered for this tool, and honoured if the
+   * client answers with it?
+   *
+   * Asked in both places on purpose. The option list is what a client is
+   * *told* it may send; nothing stops one sending `allow-always` regardless, so
+   * the same question decides whether the answer is recorded.
+   *
+   * @param {string} tool
+   */
+  const mayRemember = (tool) => remember.some((pattern) => matches(pattern, tool));
+
+  return { decide, mayRemember, describe: () => ({ rules, default: fallback, remember }) };
 }
 
 /**

@@ -632,10 +632,44 @@ is a claim by whoever reports it; a signature is not. Where the immediate peer
 differs from the origin, the request was relayed, and "refuse relayed agent
 traffic" becomes expressible without the bridge understanding topology at all.
 
-**Destination is the workspace.** Sessions already carry a `cwd`, so this cut
-exists in the model already. It is the difference between letting a phone poke at
-a scratch repo and letting it into the one with credentials in it — and it bounds
-a remote client by *what it can reach* rather than only by what it may call.
+**Destination is what the call reaches**, and that is more than one kind of
+thing. A workspace — sessions already carry a `cwd`, so that cut exists today,
+and it is the difference between letting a phone poke at a scratch repo and
+letting it into the one with credentials in it. A machine, once a turn can
+arrive from elsewhere. A URL, for anything that fetches. A named endpoint, for a
+tunnel.
+
+**Wildcards belong on locations and never on identities.** A URL and a path are
+hierarchical, so `https://api.example.com/*` means something a person can
+predict: everything under a place. A machine name is a *label on an identity*,
+and `prod-*` matches a naming convention rather than a set of machines — anyone
+who can choose a name joins the set. That is the same reason blocking prefers
+keys: a rename must not be a way in. So machines match exactly, by key where one
+is held; locations may be patterned.
+
+**And a URL pattern must match parsed components, not text.** Prefix-matching
+`https://good.com` accepts `https://good.com.evil.com`, which is the same class
+of mistake as prefix-matching a shell command — the string looks like it starts
+the same way and means something else entirely. Hosts compare right-to-left by
+label, paths by segment, scheme and port explicitly. Anything that reduces to
+`startsWith` on a URL is wrong however carefully it is written.
+
+**Whether a permission may be remembered is the same kind of question.** "Allow
+for this session" is offered per tool, from the *session's* policy — which is
+what makes it answerable by origin and workspace rather than by transport. A
+turn typed at this machine and one that arrived down a tunnel ask the same
+question, and a setting keyed on how the payload travelled would answer them
+differently for no reason anyone could defend. It also cannot live in the peer
+fabric at all: the payload is sealed, so nothing out there can see an ACP
+permission option.
+
+Two properties worth keeping. The default list is the **confined** tools —
+`read_file` and `write_file` are bounded by the workspace, so remembering them
+is a bounded promise, while the shell is how an agent left the workspace in
+testing and one click there stops the review of commands entirely rather than
+allowing one. And the question is asked **twice**: once to decide what options a
+client is offered, and again when recording the answer, because the option list
+is advice and nothing stops a client sending `allow-always` regardless.
 
 **Method policy is a third axis, and belongs here.** ACP method names are a
 closed, enumerable set, so refusing `session/set_config_option` from a remote

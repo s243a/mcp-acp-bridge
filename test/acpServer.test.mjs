@@ -14,11 +14,11 @@ import { createPeer } from "../src/jsonRpc.js";
 import { makeGate } from "../src/gate.js";
 
 /** Wire a server and a client peer to each other. */
-function connect({ runTurn = async () => ({}), onSetModel } = {}) {
+function connect({ runTurn = async () => ({}), onSetModel, mayRemember } = {}) {
   const toServer = new PassThrough();
   const toClient = new PassThrough();
 
-  const server = createAcpServer({ input: toServer, output: toClient, runTurn, onSetModel });
+  const server = createAcpServer({ input: toServer, output: toClient, runTurn, onSetModel, mayRemember });
   const client = createPeer({ input: toClient, output: toServer });
   const updates = [];
   client.on("session/update", (params) => updates.push(params));
@@ -46,7 +46,9 @@ test("a held call becomes a permission request the client can allow", async () =
     assert.equal(params.sessionId, sessionId);
     assert.deepEqual(
       params.options.map((o) => o.optionId),
-      PERMISSION_OPTIONS.map((o) => o.optionId),
+      // Nothing is rememberable unless a host says so, so the middle option is
+      // absent here — see the tests below for both halves of that.
+      PERMISSION_OPTIONS.filter((o) => o.optionId !== "allow-always").map((o) => o.optionId),
     );
     return { outcome: { outcome: "selected", optionId: "allow-once" } };
   });
@@ -92,7 +94,8 @@ test("an unrecognised outcome is a denial, not an approval", async () => {
 });
 
 test("allow-always stops re-asking for the same tool", async () => {
-  const { server, client } = connect();
+  // Only for tools a policy says may be remembered; the default is none.
+  const { server, client } = connect({ mayRemember: () => true });
   const sessionId = await newSession(client);
 
   let asked = 0;
@@ -242,4 +245,35 @@ test("an ordinary request carries no such notice", async () => {
   assert.equal(card.title, "RunCommand");
   const said = updates.map((update) => update.update?.content?.text ?? "").join("");
   assert.doesNotMatch(said, /tool channel/);
+});
+
+test("allow-always is withheld where it has no boundary", async () => {
+  const confined = new Set(["read_file", "write_file"]);
+  const { server, client } = connect({ mayRemember: ({ tool }) => confined.has(tool) });
+  const sessionId = await newSession(client);
+
+  /** @type {Record<string, string[]>} */
+  const offered = {};
+  client.on("session/request_permission", (params) => {
+    offered[params.toolCall.title.split(" ")[0]] = params.options.map((o) => o.optionId);
+    // Answer with it regardless of what was offered — a client may send
+    // anything, so the question has to be asked again when recording.
+    return { outcome: { outcome: "selected", optionId: "allow-always" } };
+  });
+
+  const gate = makeGate(server.decide);
+  await gate({ sessionId, tool: "read_file", args: { path: "notes.md" } });
+  await gate({ sessionId, tool: "run_command", args: { command: "ls -la" } });
+
+  assert.ok(offered.read_file.includes("allow-always"), "a confined tool may be remembered");
+  assert.ok(!offered.run_command.includes("allow-always"), "a shell has no boundary to remember");
+
+  // And the unoffered answer was not honoured: the next command asks again.
+  let askedAgain = false;
+  client.on("session/request_permission", () => {
+    askedAgain = true;
+    return { outcome: { outcome: "selected", optionId: "reject-once" } };
+  });
+  await gate({ sessionId, tool: "run_command", args: { command: "rm -rf /" } });
+  assert.equal(askedAgain, true, "answering allow-always for an unoffered tool must not stick");
 });
