@@ -4,7 +4,7 @@ A decider that sits between the policy and the human. Where policy falls through
 to *ask*, a supervisor may answer first — approve, reject, or **pass to the
 human** — so the routine is handled and only the unfamiliar escalates.
 
-**Built: the seam, the spawn mode, the seat/queue, and the MCP transport. Designed: the ACP transport (the same seat, a different surface).**
+**Built: the seam, the spawn mode, the seat/queue, and both the MCP and ACP transports.**
 
 ## The one rule everything else serves
 
@@ -118,17 +118,27 @@ can hold context across decisions, watch the conversation as it happens, and rea
 backwards from the tail as far as a given question needs. That is the difference
 between a filter and a reviewer.
 
-### 3. ACP — designed, late-bound
+### 3. ACP — built
 
-The same, over ACP instead of MCP, for a supervisor that is itself an agent. It
-connects to the bridge (over stdio, or over `--listen`), and the bridge offers it
-each pending decision as an ACP request it answers. This is the mode that lets
-*one agent supervise another* — a larger model watching a smaller one's actions,
-deciding what it recognises and escalating what it does not.
+The same seat, over ACP, for a supervisor that is itself an agent. Run the bridge
+with `--supervisor-acp [port]` and it opens a **TCP endpoint** a supervising ACP
+client connects to — a *separate* connection from the one driving the agent. That
+connection is its own operator session, and it calls the same five methods as
+MCP: `supervisor/claim`, `supervisor/pending`, `supervisor/decide`,
+`supervisor/release`, `supervisor/force_release`. This is the mode that lets *one
+agent supervise another* — a larger model watching a smaller one's actions.
 
-It uses the same `createExternalSupervisor` seam; only the surface differs. The
-unbuilt part is the ACP method the bridge raises to the supervising agent and the
-mapping of its reply to a verdict.
+It reuses the built seat and `supervisorAdapter` unchanged (`supervisorAcp.js` is
+the surface) — pull, not push: the client polls `supervisor/pending` and posts
+`supervisor/decide`, the same queue MCP drives, so one hardened seat serves both
+transports with no second decision path. A push variant — the bridge raising each
+decision as an ACP request the agent answers, via `createExternalSupervisor` — is
+the more agent-idiomatic shape and remains possible on the same seat; pull was
+chosen to keep a single, tested decision path.
+
+**ACP has what stateless MCP lacks: a disconnect signal.** A closed connection
+frees the seat immediately (`adapter.disconnect`), so a supervisor that drops does
+not wedge it — the case MCP needs `force_release` for resolves on its own here.
 
 ## What a supervisor chooses to read
 
@@ -208,13 +218,12 @@ inversion has to be closed explicitly or the mode ships a self-approval path:
 
 ## Open
 
-- **The ACP transport** — the same seat and adapter, over ACP methods a
-  supervising *agent* calls rather than MCP tools. `supervisorAdapter` is
-  transport-free and its `disconnect` hook fits ACP's connection lifecycle
-  cleanly (unlike stateless MCP), so this is a thin surface: map the ACP methods
-  to `claim`/`pending`/`decide`/`release` with the connection as the session.
-  The MCP transport (`supervisorTools`, `--supervisor-mcp`) is built and tested;
-  this is what remains.
+- **A push ACP variant.** Both transports are built and tested (`--supervisor-mcp`,
+  `--supervisor-acp`), both pull. The remaining option, not a gap, is the *push*
+  ACP shape — the bridge raising each decision as an ACP request the supervising
+  agent answers, rather than the agent polling. It is more agent-idiomatic and
+  sits on the same seat via `createExternalSupervisor`; worth building if a real
+  agent-supervisor prefers being asked over polling.
 - **More than one supervisor.** A panel that must agree, or a cheap one that
   escalates to an expensive one, is just nested `withSupervisor` — worth stating
   that the composition is free, once the modes exist to compose.

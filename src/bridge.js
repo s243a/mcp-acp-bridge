@@ -8,6 +8,7 @@
  * so a tool call the agent makes arrives at the client as an approval card.
  */
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
@@ -25,6 +26,7 @@ import { withSupervisor } from "./supervisor.js";
 import { createSupervisorSeat } from "./supervisorSeat.js";
 import { createSupervisorAdapter } from "./supervisorAdapter.js";
 import { supervisorTools } from "./supervisorTools.js";
+import { createSupervisorAcpServer } from "./supervisorAcp.js";
 
 /**
  * @param {{
@@ -68,7 +70,8 @@ export async function startBridge(options = {}) {
   // early). `seat.supervise` is the decider when a seat is configured; a spawn
   // supervisor otherwise; the human if neither.
   const supervisorSessionIds = new Set();
-  const seat = options.seatSupervisor ? createSupervisorSeat() : null;
+  const wantSeat = Boolean(options.seatSupervisor || options.supervisorAcp);
+  const seat = wantSeat ? createSupervisorSeat() : null;
   const supervisorAdapter = seat
     ? createSupervisorAdapter(seat, { isOperator: (session) => supervisorSessionIds.has(session) })
     : null;
@@ -143,7 +146,7 @@ export async function startBridge(options = {}) {
       ...execTools,
       ...fileTools,
       ...(taskChannel?.toolDefinitions() ?? []),
-      ...(supervisorAdapter ? supervisorTools(supervisorAdapter) : []),
+      ...(options.seatSupervisor && supervisorAdapter ? supervisorTools(supervisorAdapter) : []),
     ],
     // Verdicts are remembered so a call the agent also prompts about on its
     // terminal is not put to the user a second time.
@@ -153,14 +156,51 @@ export async function startBridge(options = {}) {
 
   const server = await gateway.listen();
 
-  // The supervisor's own session — separate from any agent's, and the only one
-  // `isOperator` recognises, so claiming the seat requires holding this path,
+  // The supervisor's own MCP session — separate from any agent's, and the only
+  // one `isOperator` recognises, so claiming the seat requires holding this path,
   // not merely reaching the endpoint. Its URL is what an operator hands to a
   // supervisor client.
-  if (supervisorAdapter) {
+  if (options.seatSupervisor && supervisorAdapter) {
     const supervisorSession = gateway.openSession();
     supervisorSessionIds.add(supervisorSession.sessionId);
     log(`[supervisor] seat open — connect a supervisor MCP client at ${server.url(supervisorSession.token)}`);
+  }
+
+  // The ACP surface: a TCP endpoint a supervising *agent* connects to. Each
+  // connection is its own operator session, and — ACP's advantage over stateless
+  // MCP — its close frees the seat with no force-release. One seat, so multiple
+  // connections simply contend for it.
+  const supervisorAcpServers = new Set();
+  let supervisorAcpNet = null;
+  let supervisorAcpPort = null;
+  if (options.supervisorAcp && supervisorAdapter) {
+    const { createServer: createNetServer } = await import("node:net");
+    supervisorAcpNet = createNetServer((socket) => {
+      socket.setNoDelay(true);
+      const session = randomUUID();
+      supervisorSessionIds.add(session);
+      const acpSupervisor = createSupervisorAcpServer({
+        input: socket,
+        output: socket,
+        adapter: supervisorAdapter,
+        session,
+        log,
+        onError: (error, method) => log(`[supervisor-acp] ${method} failed: ${error?.message}`),
+      });
+      supervisorAcpServers.add(acpSupervisor);
+      const cleanup = () => {
+        supervisorSessionIds.delete(session);
+        supervisorAcpServers.delete(acpSupervisor);
+        acpSupervisor.close();
+      };
+      socket.on("close", cleanup);
+      socket.on("error", cleanup);
+      log("[supervisor] an ACP supervisor connected");
+    });
+    const requestedPort = Number.isInteger(options.supervisorAcp) ? options.supervisorAcp : 0;
+    await new Promise((resolve) => supervisorAcpNet.listen(requestedPort, "127.0.0.1", () => resolve(undefined)));
+    supervisorAcpPort = supervisorAcpNet.address().port;
+    log(`[supervisor] ACP seat open — connect a supervisor ACP client to 127.0.0.1:${supervisorAcpPort}`);
   }
 
   acp = createAcpServer({
@@ -384,6 +424,8 @@ export async function startBridge(options = {}) {
     // it (forceRelease) if a supervisor vanished without releasing.
     supervisor: supervisorAdapter,
     seat,
+    // The TCP port an ACP supervisor connects to, when --supervisor-acp is on.
+    supervisorAcpPort,
     async close() {
       // Sessions may still hold a workspace registration; leaving one behind
       // would put a stale endpoint in someone's project.
@@ -393,6 +435,9 @@ export async function startBridge(options = {}) {
         runtime.home?.release();
       }
       runtimes.clear();
+      for (const acpSupervisor of supervisorAcpServers) acpSupervisor.close();
+      supervisorAcpServers.clear();
+      if (supervisorAcpNet) await new Promise((resolve) => supervisorAcpNet.close(() => resolve(undefined)));
       await server.close();
       acp.peer.close();
     },

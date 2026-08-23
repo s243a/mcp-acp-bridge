@@ -75,6 +75,19 @@ function parseArgs(argv) {
         // claims the seat and answers pending decisions. See docs/supervisor.md.
         options.seatSupervisor = true;
         break;
+      case "--supervisor-acp": {
+        // The same seat, over ACP, for a supervisor that is itself an agent. The
+        // bridge opens a TCP endpoint (an optional port follows, else ephemeral)
+        // a supervisor ACP client connects to; its disconnect frees the seat.
+        const next = argv[i + 1];
+        if (typeof next === "string" && /^\d+$/.test(next)) {
+          options.supervisorAcp = Number(next);
+          i += 1;
+        } else {
+          options.supervisorAcp = true;
+        }
+        break;
+      }
       case "--policy":
         // A preset name, or a path to a JSON file holding {rules, default}.
         options.policy = argv[++i];
@@ -183,6 +196,7 @@ try {
   bridge = await startBridge({
     agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
     seatSupervisor: options.seatSupervisor,
+    supervisorAcp: options.supervisorAcp,
     ...(options.supervisor
       ? {
           supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }),
