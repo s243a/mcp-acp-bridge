@@ -38,6 +38,16 @@ function parseArgs(argv) {
         // project: the real directory, with prompt-free reads and writes there.
         options.workspaceMode = argv[++i];
         break;
+      case "--listen":
+        // Answer ACP on a TCP port instead of over stdio. For an agent that
+        // should run somewhere a stdio client cannot reach — reached in practice
+        // through a peerhailer tunnel, which authenticates the client so this
+        // only ever sees a local connection.
+        options.listen = Number(argv[++i]);
+        break;
+      case "--listen-host":
+        options.listenHost = argv[++i];
+        break;
       case "--policy":
         // A preset name, or a path to a JSON file holding {rules, default}.
         options.policy = argv[++i];
@@ -107,6 +117,28 @@ const log = (message) => process.stderr.write(`${message}\n`);
 
 // A bad agent name or an unimplemented profile is a user error, not a crash;
 // print the reason rather than a stack trace.
+// A TCP listener rather than stdio, when asked. It carries no auth of its own,
+// so it binds loopback unless told otherwise, and it warns if told otherwise.
+if (Number.isFinite(options.listen)) {
+  const { createTcpBridge } = await import("../src/tcpBridge.js");
+  const host = options.listenHost ?? "127.0.0.1";
+  const tcp = createTcpBridge({
+    host,
+    port: options.listen,
+    agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
+    cwd: options.cwd ?? process.cwd(),
+    policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),
+    log,
+  });
+  const { port } = await tcp.listen();
+  log(`[bridge] listening for ACP on ${host}:${port}`);
+  if (host !== "127.0.0.1" && host !== "localhost") {
+    log(`[bridge] warning: ${host} is not loopback — this agent has no authentication of its own`);
+  }
+  process.on("SIGINT", () => tcp.close().finally(() => process.exit(0)));
+  process.on("SIGTERM", () => tcp.close().finally(() => process.exit(0)));
+} else {
+
 let bridge;
 try {
   bridge = await startBridge({
@@ -136,3 +168,5 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     bridge.close().finally(() => process.exit(0));
   });
 }
+
+} // end stdio transport

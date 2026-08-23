@@ -614,6 +614,33 @@ the person is asked only about the rest. That is a coherent destination and a
 long way from what is running today, which is one agent, one operator, and a
 debug flag that already answers the question.
 
+## ACP over a socket, so the agent can run elsewhere
+
+By default a client spawns the bridge as a subprocess and speaks ACP over
+stdin/stdout — fine while the client and the agent share a machine. The point of
+the peer fabric is that they need not: a phone drives an agent at home. Stdio
+does not cross a network; a socket does.
+
+`bridge --listen <port>` answers ACP on TCP instead. It is small because the ACP
+server already speaks newline-delimited JSON-RPC over any duplex stream, and a
+socket is one — so a connection becomes a session whose input and output *are*
+the socket, with its own agent subprocess, torn down when the socket drops.
+
+**It carries no security of its own, and that is deliberate.** It binds loopback
+by default and warns if bound wider, because an agent that runs commands has no
+business reachable on a network by accident. The intended path is a loopback
+bind behind a peerhailer tunnel: the fabric authenticates the peer and gates the
+`tunnel:acp` capability, the tunnel delivers bytes to this local port, and the
+bridge only ever sees an authenticated local connection. The bridge does not
+re-authenticate what the fabric already did — which is the same division of
+labour as everywhere else in this design: peerhailer answers *who*, the bridge
+answers *what*.
+
+Not yet built: the *client* side. This is the machine an agent runs **on**. The
+machine a person drives **from** still needs a mode where the bridge, instead of
+spawning a local agent, opens a tunnel to a peer's `--listen` port and relays the
+client's ACP down it. That is the other half of the phone-drives-an-agent story.
+
 ## Designed, not built: policy by source and destination
 
 Today a policy answers one question — may this tool run — and the answer is the
