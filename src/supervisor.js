@@ -55,9 +55,13 @@ export const WHEN_ABSENT = { HUMAN: "human", DENY: "deny" };
 
 /** Its answer, and how much of it we trust. */
 const readVerdict = (raw) => {
-  const value = String(raw ?? "").trim().toLowerCase();
-  if (value.startsWith(APPROVE)) return APPROVE;
-  if (value.startsWith(REJECT)) return REJECT;
+  // The first token, not a prefix. `startsWith("approve")` accepted
+  // `approveNOT` — a string-matching bug that fails toward *allow*, the wrong
+  // direction for a component whose whole invariant is fail-closed. `approve
+  // because it is a read` still works; `approvelol` no longer does.
+  const word = String(raw ?? "").trim().toLowerCase().split(/\s/)[0];
+  if (word === APPROVE) return APPROVE;
+  if (word === REJECT) return REJECT;
   // Anything else — `pass`, empty, garbage — is a deferral. Unknown is not
   // consent.
   return PASS;
@@ -75,6 +79,12 @@ const readVerdict = (raw) => {
  * @param {{log?: (message: string) => void}} [options]
  */
 export function withSupervisor(supervise, decide, { log = () => {}, whenAbsent = WHEN_ABSENT.HUMAN } = {}) {
+  // A typo in the plumbing that silently turned strict back into lenient would
+  // be a security downgrade nobody chose — so an unknown value is refused here,
+  // where the operator can see it, rather than degraded.
+  if (whenAbsent !== WHEN_ABSENT.HUMAN && whenAbsent !== WHEN_ABSENT.DENY) {
+    throw new Error(`unknown whenAbsent '${whenAbsent}' — use 'human' or 'deny'`);
+  }
   // An abstention resolves to whichever the operator chose — the human, or a
   // refusal — but never to an approval. `supervise` returns `pass` for every way
   // it could not decide, so this is where `pass` is interpreted.
@@ -184,22 +194,28 @@ export function createSpawnSupervisor({ command, args = [], timeoutMs = DEFAULT_
 export function createExternalSupervisor({ timeoutMs = DEFAULT_SUPERVISOR_MS } = {}) {
   /** @type {((call: any) => Promise<string>) | null} */
   let handler = null;
+  // Bumped by every bind and unbind. A decision captures the generation it began
+  // under and abstains if it changed — so a verdict from a handler that has been
+  // released or replaced is discarded rather than honoured. Without this,
+  // `unbind()` returned but a still-pending answer from the former seat-holder
+  // could approve a call for up to the whole timeout: the seat was released, the
+  // authority was not.
+  let generation = 0;
 
   const supervise = (call) =>
     new Promise((resolve) => {
-      if (!handler) return resolve(PASS); // nobody bound yet — the human decides
+      const current = handler;
+      const born = generation;
+      if (!current) return resolve(PASS); // nobody bound — the human decides
       const timer = setTimeout(() => resolve(PASS), timeoutMs);
       timer.unref?.();
-      Promise.resolve(handler(call)).then(
-        (verdict) => {
-          clearTimeout(timer);
-          resolve(verdict);
-        },
-        () => {
-          clearTimeout(timer);
-          resolve(PASS);
-        },
-      );
+      const settle = (verdict) => {
+        clearTimeout(timer);
+        // The seat changed hands while this was pending: the answer is stale, so
+        // abstain. Fail-closed, as the invariant demands.
+        resolve(born === generation ? verdict : PASS);
+      };
+      Promise.resolve(current(call)).then(settle, () => settle(PASS));
     });
 
   return {
@@ -207,9 +223,11 @@ export function createExternalSupervisor({ timeoutMs = DEFAULT_SUPERVISOR_MS } =
     /** The MCP/ACP surface calls this to become the decider. */
     bind: (fn) => {
       handler = fn;
+      generation += 1;
     },
     unbind: () => {
       handler = null;
+      generation += 1;
     },
   };
 }

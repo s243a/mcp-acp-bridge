@@ -153,3 +153,46 @@ test("require-supervisor never turns an approval or a deliberate reject into the
   assert.equal(r.allow, false);
   assert.match(r.reason, /supervisor rejected/, "a real reject is the supervisor's, not the absent-policy's");
 });
+
+test("a verdict word must be exact, not a prefix", async () => {
+  const human = humanStub();
+  // These start with "approve"/"reject" but are not them. A prefix match failed
+  // OPEN for approve, which is the one direction that must never happen.
+  const g = (verdict) => withSupervisor(() => Promise.resolve(verdict), human.decide);
+  assert.equal((await g("approveNOT")({ tool: "x" })).allow, true, "not an approve -> human allowed it, not the supervisor");
+  assert.equal(human.asked() > 0, true);
+  // And a real approve with a trailing reason still approves.
+  assert.equal((await g("approve because it only reads")({ tool: "x" })).allow, true);
+});
+
+test("releasing or replacing the seat revokes a decision still in flight", async () => {
+  const external = createExternalSupervisor({ timeoutMs: 5000 });
+  const human = humanStub();
+  const gate = withSupervisor(external.supervise, human.decide);
+
+  // Bind a handler we hold open, start a decision, then release the seat and let
+  // the released handler answer late.
+  let answer;
+  external.bind(() => new Promise((resolve) => (answer = resolve)));
+  const inFlight = gate({ tool: "run_command", args: {} });
+  external.unbind();
+  answer(APPROVE); // the released seat tries to approve
+  const result = await inFlight;
+  assert.equal(result.allow, true, "the human decided, since the supervisor was revoked");
+  assert.equal(human.asked(), 1, "and it fell to the human, not to the stale approve");
+
+  // Rebinding also invalidates a decision that began under the old seat.
+  let answer2;
+  external.bind(() => new Promise((resolve) => (answer2 = resolve)));
+  const second = gate({ tool: "write_file", args: {} });
+  external.bind(async () => REJECT); // a new seat-holder replaces the first
+  answer2(APPROVE); // the first, now-replaced handler answers
+  const r2 = await second;
+  assert.equal(r2.allow, true, "the replaced handler's approve was discarded; the human decided");
+  assert.equal(human.asked(), 2);
+});
+
+test("an unknown whenAbsent is refused at construction", () => {
+  assert.throws(() => withSupervisor(async () => "pass", async () => ({ allow: true }), { whenAbsent: "denny" }), /unknown whenAbsent/);
+  assert.doesNotThrow(() => withSupervisor(async () => "pass", async () => ({ allow: true }), { whenAbsent: WHEN_ABSENT.DENY }));
+});
