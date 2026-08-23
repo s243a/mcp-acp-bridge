@@ -27,6 +27,19 @@ import { createServer } from "node:net";
 import { startBridge } from "./bridge.js";
 
 /**
+ * How many agents this machine will run at once.
+ *
+ * Every connection opens its own gateway HTTP server before an agent even
+ * exists, so an unbounded number of connections is an unbounded number of
+ * listening ports and file descriptors — and it takes no malice, a client with a
+ * reconnect loop does it. An agent is heavy, so this is deliberately small.
+ */
+export const MAX_SESSIONS = 8;
+
+/** A connection nobody speaks on ties up an agent; a partition never sends FIN. */
+export const IDLE_MS = 30 * 60_000;
+
+/**
  * @param {{
  *   host?: string,
  *   port?: number,
@@ -46,6 +59,24 @@ export function createTcpBridge(options = {}) {
   const server = createServer((socket) => {
     socket.setNoDelay(true);
 
+    if (sessions.size >= MAX_SESSIONS) {
+      log(`[tcp] refusing a connection: already running ${sessions.size} sessions`);
+      socket.destroy();
+      return;
+    }
+
+    // Keepalive so a network partition — which sends no FIN — does not leave an
+    // agent running for hours, and an idle timeout sized to a human reviewing
+    // prompts rather than to a busy protocol.
+    socket.setKeepAlive(true, 60_000);
+    // `setTimeout` on a socket is the idle timeout, and it is unref'd by Node
+    // when it fires; the concern is only the socket handle itself, which `end`
+    // destroys.
+    socket.setTimeout(IDLE_MS, () => {
+      log(`[tcp] a session went idle; ending it`);
+      socket.destroy();
+    });
+
     // The socket is both halves of the transport. A bridge started on it answers
     // `initialize`, spawns the agent on the first prompt, and streams updates
     // back down the same socket.
@@ -58,11 +89,14 @@ export function createTcpBridge(options = {}) {
       log,
     });
 
-    const session = { socket, started };
+    /** @type {{socket: import("node:net").Socket, started: any, end: () => Promise<void>}} */
+    const session = { socket, started, end: async () => {} };
     sessions.add(session);
     log(`[tcp] a client connected from ${socket.remoteAddress ?? "an unknown address"}`);
 
-    const end = async () => {
+    // The teardown, kept as a promise so `close()` can await it: an agent that
+    // outlives its listener is a subprocess nobody will ever stop.
+    session.end = async () => {
       if (!sessions.has(session)) return;
       sessions.delete(session);
       try {
@@ -74,10 +108,10 @@ export function createTcpBridge(options = {}) {
 
     // A dropped connection ends the agent behind it: an agent nobody can reach
     // is an agent nobody can review, and leaving it running spends the machine.
-    socket.on("close", end);
+    socket.on("close", () => session.end());
     socket.on("error", (error) => {
       log(`[tcp] connection error: ${error?.message ?? error}`);
-      end();
+      session.end();
     });
   });
 
@@ -98,8 +132,19 @@ export function createTcpBridge(options = {}) {
         });
       }),
     close: async () => {
-      await Promise.all([...sessions].map((session) => session.socket.destroy()));
-      await new Promise((resolve) => server.close(() => resolve(undefined)));
+      // Stop accepting, then force every live session down and wait for the
+      // agents to die. Destroying the socket first is deliberate: `server.close`
+      // waits for open connections to end on their own, and a client that has
+      // not hung up would otherwise make this hang — so the sessions are torn
+      // down rather than waited on. `end()` is what awaits the agent, since
+      // `socket.destroy()` returns synchronously and awaiting it awaits nothing.
+      server.close();
+      await Promise.all(
+        [...sessions].map((session) => {
+          session.socket.destroy();
+          return session.end();
+        }),
+      );
     },
   };
 }

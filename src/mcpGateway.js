@@ -151,7 +151,14 @@ export function createGateway(options = {}) {
         resolve({
           port: boundPort,
           url: (token) => `http://${host}:${boundPort}/mcp/${token}`,
-          close: () => new Promise((done) => http.close(done)),
+          close: () =>
+            new Promise((done) => {
+              // Force-close keep-alive sockets rather than waiting for the peer:
+              // `http.close` alone waits for idle, and an MCP client polling over
+              // keep-alive keeps it open past when the bridge is done with it.
+              http.close(() => done(undefined));
+              http.closeAllConnections?.();
+            }),
         });
       });
     });

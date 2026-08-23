@@ -16,6 +16,9 @@ export const ErrorCode = {
   INTERNAL: -32603,
 };
 
+/** A JSON-RPC message here is small; a line larger than this is not one. */
+const MAX_LINE = 4 * 1024 * 1024;
+
 export function createPeer({ input, output, onError }) {
   const handlers = new Map();
   const pending = new Map();
@@ -25,6 +28,15 @@ export function createPeer({ input, output, onError }) {
   input.setEncoding("utf8");
   input.on("data", (chunk) => {
     buffer += chunk;
+    // A client that streams without ever sending a newline would otherwise grow
+    // this without bound — a slow-loris on the transport. The messages are
+    // small, so a line this long is not a message; drop the connection.
+    if (buffer.length > MAX_LINE) {
+      onError?.(new Error("line exceeded the maximum length"), "input");
+      buffer = "";
+      input.destroy?.();
+      return;
+    }
     // A partial trailing line stays in the buffer until its newline arrives.
     let index;
     while ((index = buffer.indexOf("\n")) !== -1) {

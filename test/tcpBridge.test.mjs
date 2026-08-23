@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { connect } from "node:net";
 import { test } from "node:test";
 
-import { createTcpBridge } from "../src/tcpBridge.js";
+import { createTcpBridge, MAX_SESSIONS } from "../src/tcpBridge.js";
 import { createPeer } from "../src/jsonRpc.js";
 
 /** An ACP client speaking JSON-RPC down a socket. */
@@ -81,4 +81,56 @@ test("it binds loopback by default", async () => {
   } finally {
     await bridge.close();
   }
+});
+
+test("connections are capped, so a reconnect loop cannot exhaust the machine", async () => {
+  const bridge = createTcpBridge({ agent: "claude" });
+  const { port } = await bridge.listen();
+
+  const held = [];
+  // The server accepts the TCP connection and *then* destroys it when over the
+  // cap, so "refused" shows up as the socket closing shortly after connecting
+  // rather than as a connect error. Hold a connection open by settling on
+  // connect, and separately watch whether it gets closed from the other end.
+  const openOne = () =>
+    new Promise((resolve) => {
+      const socket = connect({ host: "127.0.0.1", port });
+      let refused = false;
+      socket.on("close", () => (refused = true));
+      socket.on("error", () => {});
+      socket.once("connect", () => setTimeout(() => resolve({ socket, refused }), 80));
+    });
+
+  try {
+    for (let i = 0; i < MAX_SESSIONS; i += 1) held.push(await openOne());
+    const overflow = await openOne();
+    assert.equal(overflow.refused, true, "the one past the cap is closed, not served");
+  } finally {
+    for (const { socket } of held) socket.destroy();
+    await bridge.close();
+  }
+});
+
+test("close waits for sessions rather than returning before they end", async () => {
+  const bridge = createTcpBridge({ agent: "claude" });
+  const { port } = await bridge.listen();
+
+  const socket = connect({ host: "127.0.0.1", port });
+  await new Promise((resolve) => socket.once("connect", resolve));
+  const client = clientOn(socket);
+  client.on("session/update", () => {});
+  await client.request("initialize", { protocolVersion: 1 });
+
+  // The assertion is that close() settles *while a connection is still open* —
+  // it tears the session down rather than waiting for the client to leave, and
+  // it does not resolve before the agent teardown it awaits. A broken await
+  // chain or a wait-for-client close would hang here.
+  await assert.doesNotReject(
+    Promise.race([
+      bridge.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("close hung")), 4000)),
+    ]),
+    "close settles without waiting for the client to hang up",
+  );
+  socket.destroy();
 });
