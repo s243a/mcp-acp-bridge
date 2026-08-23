@@ -51,9 +51,15 @@ function parseArgs(argv) {
         break;
       case "--supervisor":
         // A command run per decision — the call on stdin, `approve|reject|pass`
-        // on stdout. Silence or slowness passes to the human; it cannot fail
-        // open. The two late-binding modes (MCP, ACP) are in docs/supervisor.md.
+        // on stdout. It cannot fail open. The two late-binding modes (MCP, ACP)
+        // are in docs/supervisor.md.
         options.supervisor = argv[++i];
+        break;
+      case "--require-supervisor":
+        // When the supervisor is absent — crashed, timed out, not yet bound —
+        // refuse rather than fall through to the human. For unattended
+        // operation where the supervisor is the only intended reviewer.
+        options.requireSupervisor = true;
         break;
       case "--policy":
         // A preset name, or a path to a JSON file holding {rules, default}.
@@ -151,7 +157,10 @@ try {
   bridge = await startBridge({
     agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
     ...(options.supervisor
-      ? { supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }) }
+      ? {
+          supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }),
+          whenSupervisorAbsent: options.requireSupervisor ? "deny" : "human",
+        }
       : {}),
     cwd: options.cwd ?? process.cwd(),
     timeoutMs: options.timeoutMs,

@@ -21,6 +21,25 @@ This is why a supervisor is safe to add: at worst it changes nothing (everything
 passes through to the human), and it can only ever *remove* work from the human,
 never grant on their behalf without being explicit about it.
 
+### What an absent supervisor means is configurable
+
+Absent — crashed, timed out, or not yet bound — resolves to one of two things,
+never to allow:
+
+- **`human`** (default, `--supervisor` alone). The call falls through to the
+  human. With a human present that is normal review; unattended, no human
+  answers and the gate timeout denies. Safe in both.
+- **`deny`** (`--require-supervisor`). While the supervisor is not answering,
+  refuse. This is "nothing runs unwatched" — for unattended operation where the
+  supervisor is the *only* intended reviewer, so its silence does not become a
+  human's silence-until-timeout with a wider window than you meant.
+
+Both apply only to **abstention**. A supervisor that is present and answers —
+approve or reject — is always honoured; `--require-supervisor` never overrides a
+real verdict, only fills the gap when there is none. And neither posture is
+*approve*, because that is the one thing a supervisor's absence must never
+become.
+
 ## Three modes, one interface
 
 A supervisor is `(call) => Promise<"approve" | "reject" | "pass">`. Three ways to

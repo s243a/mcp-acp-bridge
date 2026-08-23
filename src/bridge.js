@@ -58,7 +58,7 @@ export async function startBridge(options = {}) {
   // allow. See supervisor.js.
   const human = (call) => acp.decide(call);
   const decideWithReview = options.supervisor
-    ? withSupervisor(options.supervisor, human, { log })
+    ? withSupervisor(options.supervisor, human, { log, whenAbsent: options.whenSupervisorAbsent })
     : human;
 
   const gate = makeGate(

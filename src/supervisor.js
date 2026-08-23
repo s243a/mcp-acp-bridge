@@ -34,6 +34,25 @@ export const REJECT = "reject";
 /** A supervisor gets this long to answer before the human is asked instead. */
 export const DEFAULT_SUPERVISOR_MS = 20_000;
 
+/**
+ * What an *absent* supervisor means — configured, but crashed, timed out, or
+ * (in the late-binding modes) not yet connected.
+ *
+ * `human` is the default and the lenient posture: the agent keeps working,
+ * reviewed by whoever is present, and if nobody is the gate timeout denies
+ * anyway. `deny` is the strict posture — "nothing runs unwatched": while the
+ * supervisor is not answering, refuse rather than fall through. This is the
+ * choice for unattended operation where the supervisor is the *only* intended
+ * reviewer, so its silence must not become the human's silence-then-timeout with
+ * a longer window than you wanted.
+ *
+ * Note what neither option is: **approve**. An absent supervisor can send a call
+ * to the human or refuse it; it can never let it through. That is not
+ * configurable, because a supervisor that fails open is the one thing the whole
+ * design exists to prevent.
+ */
+export const WHEN_ABSENT = { HUMAN: "human", DENY: "deny" };
+
 /** Its answer, and how much of it we trust. */
 const readVerdict = (raw) => {
   const value = String(raw ?? "").trim().toLowerCase();
@@ -55,14 +74,24 @@ const readVerdict = (raw) => {
  * @param {(call: any) => Promise<{allow: boolean, reason?: string}>} decide
  * @param {{log?: (message: string) => void}} [options]
  */
-export function withSupervisor(supervise, decide, { log = () => {} } = {}) {
+export function withSupervisor(supervise, decide, { log = () => {}, whenAbsent = WHEN_ABSENT.HUMAN } = {}) {
+  // An abstention resolves to whichever the operator chose — the human, or a
+  // refusal — but never to an approval. `supervise` returns `pass` for every way
+  // it could not decide, so this is where `pass` is interpreted.
+  const onAbsent = (call) => {
+    if (whenAbsent === WHEN_ABSENT.DENY) {
+      return { allow: false, reason: "denied-by-policy: no supervisor available" };
+    }
+    return decide(call);
+  };
+
   return async function supervisedDecide(call) {
     let verdict;
     try {
       verdict = readVerdict(await supervise(call));
     } catch (error) {
       // A supervisor that fails is a supervisor that abstains. It must never
-      // fail *open*: the safe direction is the human, not allow.
+      // fail *open*: the safe direction is what the operator chose, never allow.
       log(`[supervisor] abstained: ${error instanceof Error ? error.message : error}`);
       verdict = PASS;
     }
@@ -79,7 +108,9 @@ export function withSupervisor(supervise, decide, { log = () => {} } = {}) {
       // reads as "no person saw this".
       return { allow: false, reason: "denied-by-policy: supervisor rejected" };
     }
-    return decide(call);
+    // `pass`: the supervisor abstained, deliberately or by failing. What that
+    // means is the operator's choice — see `whenAbsent`.
+    return onAbsent(call);
   };
 }
 

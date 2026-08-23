@@ -12,6 +12,7 @@ import {
   createSpawnSupervisor,
   PASS,
   REJECT,
+  WHEN_ABSENT,
   withSupervisor,
 } from "../src/supervisor.js";
 
@@ -119,4 +120,36 @@ test("an external supervisor passes until something binds, then defers to it", a
   external.bind(() => new Promise(() => {}));
   await gate({ tool: "run_command", args: {} });
   assert.equal(human.asked(), 2, "a wedged external supervisor times out to the human");
+});
+
+test("when-absent is configurable: human by default, deny on request", async () => {
+  const human = humanStub();
+
+  // A supervisor that only ever abstains (throws), under both postures.
+  const abstain = () => Promise.reject(new Error("down"));
+
+  const lenient = withSupervisor(abstain, human.decide, { whenAbsent: WHEN_ABSENT.HUMAN });
+  const passed = await lenient({ tool: "run_command", args: {} });
+  assert.equal(passed.allow, true, "human decides when the supervisor is absent");
+  assert.equal(human.asked(), 1);
+
+  const strict = withSupervisor(abstain, human.decide, { whenAbsent: WHEN_ABSENT.DENY });
+  const denied = await strict({ tool: "run_command", args: {} });
+  assert.equal(denied.allow, false, "nothing runs unwatched");
+  assert.match(denied.reason, /no supervisor available/);
+  assert.equal(human.asked(), 1, "and the human was not troubled");
+});
+
+test("require-supervisor never turns an approval or a deliberate reject into the wrong thing", async () => {
+  const human = humanStub();
+
+  // A present supervisor whose verdict is real must be honoured regardless of
+  // the absent-policy — deny-on-absent applies only to abstention.
+  const approver = withSupervisor(() => Promise.resolve(APPROVE), human.decide, { whenAbsent: WHEN_ABSENT.DENY });
+  assert.equal((await approver({ tool: "read_file", args: {} })).allow, true, "a real approve still approves");
+
+  const rejecter = withSupervisor(() => Promise.resolve(REJECT), human.decide, { whenAbsent: WHEN_ABSENT.DENY });
+  const r = await rejecter({ tool: "write_file", args: {} });
+  assert.equal(r.allow, false);
+  assert.match(r.reason, /supervisor rejected/, "a real reject is the supervisor's, not the absent-policy's");
 });
