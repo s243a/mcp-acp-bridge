@@ -8,7 +8,7 @@
  * so a tool call the agent makes arrives at the client as an approval card.
  */
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 
 import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
@@ -166,24 +166,33 @@ export async function startBridge(options = {}) {
     log(`[supervisor] seat open — connect a supervisor MCP client at ${server.url(supervisorSession.token)}`);
   }
 
-  // The ACP surface: a TCP endpoint a supervising *agent* connects to. Each
-  // connection is its own operator session, and — ACP's advantage over stateless
-  // MCP — its close frees the seat with no force-release. One seat, so multiple
-  // connections simply contend for it.
+  // The ACP surface: a TCP endpoint a supervising *agent* connects to. A
+  // connection becomes an operator only after presenting the token below — the
+  // port is loopback, and a loopback port is reachable by the supervised agent
+  // too, so "reached the port" cannot be authority. ACP's advantage over
+  // stateless MCP holds once past the door: a close frees the seat with no
+  // force-release. One seat, so authenticated connections contend for it.
   const supervisorAcpServers = new Set();
+  const supervisorAcpSockets = new Set();
   let supervisorAcpNet = null;
   let supervisorAcpPort = null;
+  let supervisorAcpToken = null;
   if (options.supervisorAcp && supervisorAdapter) {
     const { createServer: createNetServer } = await import("node:net");
+    supervisorAcpToken = randomBytes(24).toString("base64url");
     supervisorAcpNet = createNetServer((socket) => {
       socket.setNoDelay(true);
+      supervisorAcpSockets.add(socket);
       const session = randomUUID();
-      supervisorSessionIds.add(session);
+      // NOT an operator yet — only `onAuthenticated`, after the token check,
+      // adds it to the set `isOperator` consults.
       const acpSupervisor = createSupervisorAcpServer({
         input: socket,
         output: socket,
         adapter: supervisorAdapter,
         session,
+        token: supervisorAcpToken,
+        onAuthenticated: (id) => supervisorSessionIds.add(id),
         log,
         onError: (error, method) => log(`[supervisor-acp] ${method} failed: ${error?.message}`),
       });
@@ -191,16 +200,19 @@ export async function startBridge(options = {}) {
       const cleanup = () => {
         supervisorSessionIds.delete(session);
         supervisorAcpServers.delete(acpSupervisor);
+        supervisorAcpSockets.delete(socket);
         acpSupervisor.close();
       };
       socket.on("close", cleanup);
       socket.on("error", cleanup);
-      log("[supervisor] an ACP supervisor connected");
+      log("[supervisor] an ACP client connected (unauthenticated until it presents the token)");
     });
     const requestedPort = Number.isInteger(options.supervisorAcp) ? options.supervisorAcp : 0;
     await new Promise((resolve) => supervisorAcpNet.listen(requestedPort, "127.0.0.1", () => resolve(undefined)));
     supervisorAcpPort = supervisorAcpNet.address().port;
     log(`[supervisor] ACP seat open — connect a supervisor ACP client to 127.0.0.1:${supervisorAcpPort}`);
+    log(`[supervisor] authenticate with token: ${supervisorAcpToken}`);
+    log("[supervisor] this token is the credential — anything that can read this console can supervise; do not tunnel this port without it");
   }
 
   acp = createAcpServer({
@@ -424,8 +436,10 @@ export async function startBridge(options = {}) {
     // it (forceRelease) if a supervisor vanished without releasing.
     supervisor: supervisorAdapter,
     seat,
-    // The TCP port an ACP supervisor connects to, when --supervisor-acp is on.
+    // The TCP port an ACP supervisor connects to, and the token it must present
+    // to authenticate — when --supervisor-acp is on.
     supervisorAcpPort,
+    supervisorAcpToken,
     async close() {
       // Sessions may still hold a workspace registration; leaving one behind
       // would put a stale endpoint in someone's project.
@@ -435,6 +449,11 @@ export async function startBridge(options = {}) {
         runtime.home?.release();
       }
       runtimes.clear();
+      // Destroy held sockets first: `net.Server.close` waits for open
+      // connections to end, and a supervisor that just stays connected would
+      // otherwise hang teardown forever.
+      for (const socket of supervisorAcpSockets) socket.destroy();
+      supervisorAcpSockets.clear();
       for (const acpSupervisor of supervisorAcpServers) acpSupervisor.close();
       supervisorAcpServers.clear();
       if (supervisorAcpNet) await new Promise((resolve) => supervisorAcpNet.close(() => resolve(undefined)));

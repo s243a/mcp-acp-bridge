@@ -122,9 +122,14 @@ between a filter and a reviewer.
 
 The same seat, over ACP, for a supervisor that is itself an agent. Run the bridge
 with `--supervisor-acp [port]` and it opens a **TCP endpoint** a supervising ACP
-client connects to — a *separate* connection from the one driving the agent. That
-connection is its own operator session, and it calls the same five methods as
-MCP: `supervisor/claim`, `supervisor/pending`, `supervisor/decide`,
+client connects to — a *separate* connection from the one driving the agent.
+Reaching the port is **not** authority: the port is loopback, and the supervised
+agent runs on the same machine with shell-class tools, so it can reach the port
+too. A connection becomes an operator only after presenting the **token the
+bridge prints to its console** (stderr, which the agent cannot read) via ACP
+`authenticate`. Without it, the connection supervises nothing — closing the
+self-approval the agent would otherwise have. Once authenticated it calls the
+same five methods as MCP: `supervisor/claim`, `supervisor/pending`, `supervisor/decide`,
 `supervisor/release`, `supervisor/force_release`. This is the mode that lets *one
 agent supervise another* — a larger model watching a smaller one's actions.
 
