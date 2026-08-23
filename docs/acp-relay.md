@@ -48,12 +48,13 @@ its own agent into connecting somewhere — the ACP stream is attacker-influence
 the moment a remote peer is driving it, and a stream must not choose its own
 exit.
 
-## Why a relay rather than a dumb shim: this is where review lives
+## Why a relay rather than a dumb shim: this is where review is richest
 
 A shim copies bytes and can inspect nothing. A relay speaks ACP in the clear on
 the **near** side, which is the one place the conversation is readable before it
-is seal­ed for the tunnel — so everything the bridge's design already wants to do
-to a remote turn attaches *here*, and attaches identically for a local one:
+is sealed for the tunnel — so everything the bridge's design wants to do to a
+remote turn is *cheapest and richest* here, and attaches identically for a local
+one:
 
 - **Method policy.** ACP method names are a closed set. "A remote route may not
   call `session/set_config_option`" is an exact check, and it belongs at the
@@ -69,8 +70,47 @@ to a remote turn attaches *here*, and attaches identically for a local one:
   what the bridge's source/destination policy needs and could not cleanly get
   when the transport was fixed at spawn.
 
-The shim could do none of this. The relay is the seam the design has been asking
-for.
+The shim could do none of this. But — and this is the correction a review forced
+— **the relay is where review is richest, not where it lives.** It is not the
+only seam, and nothing above makes it one.
+
+### The relay is not the only path to the agent
+
+`tunnel:acp` is a peerhailer capability granted per peer key. The relay reaches
+the far `--listen` end *through that capability* — and the far daemon cannot tell
+"the relay opening this tunnel" from "any other process on the relay's machine
+opening the same tunnel", because both arrive under the same key. So whoever can
+drive the relay machine can open a **raw tunnel straight to the agent**, and the
+relay — with its method policy, its supervisor, its route-aware axes — sees
+nothing. No second grant is needed; the side door is the same door.
+
+What the bypass does *not* remove is the far bridge's own gate and policy, which
+travel with the agent regardless of arrival path. So review does not vanish — it
+**drops to whatever the far bridge was configured with**, and everything the
+relay was going to add is gone. A policy that lives only at the relay applies
+only to callers who volunteer for it.
+
+### The fix: attest the relay, enforce at the far end
+
+The far `--listen` end must be able to tell a relayed arrival from a raw one, and
+apply its strictest policy to the raw one. The smallest thing that does it:
+
+- **Relay attestation.** The relay presents, per connection, something a raw
+  tunnel client does not — a shared secret in the ACP handshake, or the relay's
+  signature over a session nonce. One config item at each end, no new crypto.
+- **Not refusal — demotion.** A connection without attestation is *not* rejected;
+  the far bridge still works for direct local use. It is answered with the
+  strictest posture the bridge knows — its existing `review-everything` — which
+  is exactly right for an arrival that declined supervision.
+
+So method policy at the relay is **necessary but not sufficient**: the far end
+must also enforce, not as duplication but because that is what makes the relay's
+policy a *ceiling* rather than a suggestion. Without it, the relay's whole value
+is opt-in by the very party you might not trust.
+
+None of that changes what the relay is *for* — it is still where method policy,
+the supervisor, and the route-aware axes are cheapest to run. It changes what
+makes them binding: the far end, not the relay's goodwill.
 
 ## How it composes with sealing
 
@@ -106,12 +146,43 @@ carry anything could inspect nothing, which is the shim again.
 **Not a place the caller supplies an address.** Routes are named and declared,
 for the reason above.
 
+## Local and remote are not symmetric in failure
+
+"Local is the degenerate case" is true for *routing and review* — the same code
+path, the same inspection. It is false for *failure semantics*, and the
+difference matters enough to state:
+
+- **A local exit fails closed; a remote one can fail open.** A local agent that
+  responds is the right agent — you spawned it. A remote agent that responds
+  proves only that *something* answered: a mis-pointed route name lands on a
+  different machine's agent, fully functional, approval cards and all, and the
+  relay's review runs happily against the wrong destination. Named routes bound
+  *caller* misdirection; nothing bounds *operator* misconfiguration, and the
+  degenerate-case framing must not be read as "the route table is checked". It
+  is not — it is config, and a wrong entry is a working tunnel to the wrong
+  place.
+- **Reconnect inherits the asymmetry** — see the two rules above. Locally,
+  finding the session is trivial; remotely it is an authentication question.
+
+Nothing in the core design depends on a symmetry it does not have, but the
+reconnect work is where assuming it would produce a real hole.
+
 ## Open
 
-- **Reconnect.** A tunnelled route whose link drops mid-turn: the agent keeps
-  running at the far end, and a reconnecting relay must find the session it left
-  or cancel it. This is the bridge's existing "link drops mid-turn" open question,
-  now with a named place to solve it.
+- **Reconnect is an authentication problem, not a routing one.** A tunnelled
+  route whose link drops mid-turn leaves the agent running at the far end, and a
+  reconnecting relay must reattach. Two rules the design commits to now, before
+  the code exists, because getting either wrong is a hole rather than a bug:
+  - **A session pins its exit at establishment; reconnect re-finds, never
+    re-chooses.** If reconnection re-resolved the route *by name*, a route-table
+    edit between drop and reconnect would move a live session to a different
+    exit — the stream influencing its own exit, once removed, which claim 2 is
+    supposed to forbid.
+  - **The far end must re-authenticate the session, not just the route.**
+    "Find the session I left" is a claim the far end has to check with a session
+    token the reconnecting relay presents. Fail-open here attaches a relay to
+    whatever session the far end thinks matches — a stranger's agent, with a
+    stranger's conversation in its context.
 - **How a route is declared, and by whom.** T3 launches the relay with a route
   name; the route table itself is local configuration. Whether peerhailer's
   capability model gates *which* routes a given launch may use is the interesting
