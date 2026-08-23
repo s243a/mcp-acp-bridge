@@ -15,6 +15,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import { startBridge } from "../src/bridge.js";
+import { createSpawnSupervisor } from "../src/supervisor.js";
 
 const TRANSPORT_WORDS = new Set(["acp", "agent", "stdio"]);
 
@@ -47,6 +48,12 @@ function parseArgs(argv) {
         break;
       case "--listen-host":
         options.listenHost = argv[++i];
+        break;
+      case "--supervisor":
+        // A command run per decision — the call on stdin, `approve|reject|pass`
+        // on stdout. Silence or slowness passes to the human; it cannot fail
+        // open. The two late-binding modes (MCP, ACP) are in docs/supervisor.md.
+        options.supervisor = argv[++i];
         break;
       case "--policy":
         // A preset name, or a path to a JSON file holding {rules, default}.
@@ -143,6 +150,9 @@ let bridge;
 try {
   bridge = await startBridge({
     agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
+    ...(options.supervisor
+      ? { supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }) }
+      : {}),
     cwd: options.cwd ?? process.cwd(),
     timeoutMs: options.timeoutMs,
       policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),

@@ -21,6 +21,7 @@ import { prepareWorkspace } from "./workspaceConfig.js";
 import { buildInitialPrompt, getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
 import { makePolicy, withPolicy } from "./policy.js";
+import { withSupervisor } from "./supervisor.js";
 
 /**
  * @param {{
@@ -51,8 +52,17 @@ export async function startBridge(options = {}) {
   // Policy first, human second: allow and deny never reach a person, so a
   // subagent's forty reads do not become forty prompts.
   const defaultPolicy = makePolicy(options.policy, { log });
+  // The human fall-through: what policy reaches when it says neither allow nor
+  // deny. A supervisor, if configured, sits in front of this and may answer
+  // first — but every way it can fail resolves to this same human, never to an
+  // allow. See supervisor.js.
+  const human = (call) => acp.decide(call);
+  const decideWithReview = options.supervisor
+    ? withSupervisor(options.supervisor, human, { log })
+    : human;
+
   const gate = makeGate(
-    withPolicy((call) => runtimes.get(call.sessionId)?.policy ?? defaultPolicy, (call) => acp.decide(call), {
+    withPolicy((call) => runtimes.get(call.sessionId)?.policy ?? defaultPolicy, decideWithReview, {
       onDecision: ({ tool, verdict, reason }) => log(`[policy] ${verdict} ${tool} (${reason})`),
     }),
     { timeoutMs: options.timeoutMs },

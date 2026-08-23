@@ -773,7 +773,19 @@ None of this is built. It is written down because the shape of the policy system
 decides whether it can be added later without a rewrite: rules keyed only on tool
 name have nowhere to put an origin.
 
-## Deferred: a supervisor as the decider
+## The supervisor
+
+> **Built** — the seam and the spawn mode. The MCP and ACP late-binding modes
+> are designed in [supervisor.md](supervisor.md). The rest of this section is the
+> reasoning that shaped it, kept because it is where the fail-safe rule comes
+> from.
+
+`bridge --supervisor <command>` runs a decider before the human. It cannot fail
+open: slow, absent, crashed, or unsure all pass to the human, never to allow, and
+a rejection is reported as policy rather than as a person's refusal. That is what
+makes it safe to add — at worst it changes nothing.
+
+## Deferred (design): a supervisor as the decider
 
 Design only, and cheaper than it sounds, because the seam already exists. Every
 permission here passes through one decider — `makeGate` wraps a policy, and the
