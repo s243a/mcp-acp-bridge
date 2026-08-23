@@ -636,10 +636,30 @@ re-authenticate what the fabric already did — which is the same division of
 labour as everywhere else in this design: peerhailer answers *who*, the bridge
 answers *what*.
 
-Not yet built: the *client* side. This is the machine an agent runs **on**. The
-machine a person drives **from** still needs a mode where the bridge, instead of
-spawning a local agent, opens a tunnel to a peer's `--listen` port and relays the
-client's ACP down it. That is the other half of the phone-drives-an-agent story.
+### How T3 launches this, and why the client side is a drop-in
+
+T3 has no concept of "the bridge". Its ACP driver has one setting, `command`,
+described in its own schema as *"Executable that speaks ACP over stdio"*, plus an
+`args` array. T3 spawns that command as a subprocess and talks ACP over its
+stdin/stdout. That is the entire contract — T3 never learns there is a bridge, an
+MCP endpoint, and an agent behind it.
+
+Which fixes the shape of the remaining work. T3 only knows spawn-and-stdio; it
+has no "connect to a socket" mode, and adding one would be a fork change. So the
+`--listen` server built here is the *far* end, and the near end is a **stdio
+shim** T3 spawns as its `command`:
+
+1. T3 spawns the shim and speaks ACP to it over stdio, exactly as it does any
+   local ACP agent — no T3 change, which the fork situation makes essential.
+2. The shim opens a peerhailer tunnel to a peer's `bridge --listen` port.
+3. ACP flows stdio ↔ tunnel ↔ remote bridge ↔ agent. The agent runs there; its
+   approval cards arrive here.
+
+The shim is small — copy stdin to the tunnel and the tunnel to stdout — and it is
+the only unbuilt piece between a phone and an agent at home. `--listen` is done;
+the shim is the near end of the same wire.
+
+**Still unbuilt: the shim.** Everything it connects is now in place.
 
 ## Designed, not built: policy by source and destination
 
