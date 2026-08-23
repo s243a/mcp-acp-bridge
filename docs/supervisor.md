@@ -42,6 +42,15 @@ real verdict, only fills the gap when there is none. And neither posture is
 *approve*, because that is the one thing a supervisor's absence must never
 become.
 
+**One caution for the late-bound modes:** with `deny`, "absent" includes *not
+yet connected* — so every startup and every supervisor reconnect is a full-deny
+window by design. That is safe, but it pressures an operator toward binding
+something quickly to clear the window, which tends toward a permanently-bound,
+minimally-scrutinised supervisor — worse than the human default. `--require-
+supervisor` pairs cleanly with the *spawn* mode, which is always present; with a
+late-bound mode the operator is accepting deny-windows and should be told so, and
+the claim event logged as loudly as decisions.
+
 ## Three modes, one interface
 
 A supervisor is `(call) => Promise<"approve" | "reject" | "pass">`. Three ways to
@@ -113,6 +122,52 @@ supervisor can ask for what suits the question:
 The spawn mode sees only what is piped (today, the call itself). The late-bound
 modes, being sessions, can request more — which is the substantive reason to
 build them.
+
+## The late-bound seat is the most privileged reader — three rules it needs
+
+The spawn mode redacts: a supervisor gets `{tool, args}`, and the session's
+internals are deliberately withheld. The late-bound modes' whole selling point —
+"holds context, watches the conversation, reads backwards from the tail" —
+*removes that boundary*. That is not a detail to gloss: whoever binds the seat
+gets a standing feed of the full session plaintext, on request. The seat is the
+most privileged reader in the system — it sees what the human sees, plus
+structured access the human does not have — and none of the following is
+optional before either late-bound mode ships.
+
+**Claiming the seat requires operator authority, not mere connection.** The
+sketched `supervisor/claim` is a tool a connected client calls, and "who can
+connect to the MCP endpoint" was sized for tool callers, not session readers. So
+claim must check operator-level authority, the same bar as reloading a plugin or
+minting a grant — never "any client that reached the endpoint."
+
+**The seat is single, attested, and visible.** One holder at a time, and the
+human must be able to see that a supervisor is bound and which one. An invisible
+supervisor is a silent man-in-the-middle of the consent flow — a party deciding
+approvals that the person believes they are deciding. Binding and unbinding are
+logged as loudly as decisions.
+
+**Which views a seat may read is a property of the claim, not the reader's
+choosing.** The aggregate / channel / tail trio is the right shape, but a bound
+supervisor should get the views its claim was granted, not whatever it asks for
+after the fact. Redaction does not disappear because the mode changed; it becomes
+per-view and per-claim.
+
+## An agent supervisor's own calls are policy-decided, never self-decided
+
+Mode 3 — an agent watching an agent — inverts the gate's trust direction, and the
+inversion has to be closed explicitly or the mode ships a self-approval path:
+
+- **The supervised agent's requests become another agent's input.** Prompt-
+  injection content in a file the small agent read flows into the large agent's
+  decision context. The supervisor is a second injection surface, and a more
+  capable one — worth stating so nobody treats "bigger model" as "safer."
+- **Correlated failure.** Two models of the same family share blind spots;
+  "recognises and escalates" fails silently when both misread the same call.
+- **The rule that must be stated now:** a supervising agent that needs tools to
+  read context has those calls hit the *gate* — and they are **policy-decided,
+  never supervisor-decided**. A supervisor approving its own calls is a loop or a
+  bypass, which is failing open one level up. The supervisor decides the
+  *supervised* agent's calls and nothing of its own.
 
 ## Composition with everything else
 
