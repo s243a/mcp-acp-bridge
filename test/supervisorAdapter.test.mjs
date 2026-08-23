@@ -92,3 +92,35 @@ test("wired through withSupervisor, a held approve allows and no seat falls to t
   await tools.supervisor_decide.handler({ id: pending[0].id, verdict: "approve" }, { sessionId: OP });
   assert.equal((await pendingDecision).allow, true);
 });
+
+test("every supervisor tool bypasses the gate, and force-release is present", () => {
+  const tools = supervisorTools(createSupervisorAdapter(createSupervisorSeat()));
+  assert.ok(tools.every((t) => t.bypassGate === true), "the supervisor's console is not itself a reviewed action");
+  assert.ok(tools.some((t) => t.name === "supervisor_force_release"), "the wedge recovery has a door");
+});
+
+test("any operator can force the seat open when its holder vanished; a non-operator cannot", () => {
+  const seat = createSupervisorSeat();
+  const ops = new Set(["op1", "op2"]);
+  const adapter = createSupervisorAdapter(seat, { isOperator: (s) => ops.has(s) });
+  adapter.claim("op1");
+  assert.equal(adapter.forceRelease("stranger").ok, false, "not an operator — refused");
+  assert.equal(seat.status().held, true, "seat still held");
+  assert.equal(adapter.forceRelease("op2").ok, true, "a different operator recovers it — the holder is gone");
+  assert.equal(seat.status().held, false);
+  assert.equal(adapter.claim("op2").ok, true, "and the freed seat is reclaimable");
+});
+
+test("the force-release tool recovers a wedged seat and voids its pending decision", async () => {
+  const seat = createSupervisorSeat({ timeoutMs: 60_000 });
+  const ops = new Set(["op1", "op2"]);
+  const adapter = createSupervisorAdapter(seat, { isOperator: (s) => ops.has(s) });
+  const tools = Object.fromEntries(supervisorTools(adapter).map((t) => [t.name, t]));
+
+  await tools.supervisor_claim.handler({}, { sessionId: "op1" });
+  const decision = seat.supervise({ tool: "run_command" });
+  // op1's client vanished with no release; op2 forces the seat open.
+  assert.equal((await tools.supervisor_force_release.handler({}, { sessionId: "op2" })).ok, true);
+  assert.equal(await decision, PASS, "the vanished holder's pending decision voids to pass");
+  assert.equal((await tools.supervisor_claim.handler({}, { sessionId: "op2" })).ok, true, "reclaimable");
+});

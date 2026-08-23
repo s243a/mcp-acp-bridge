@@ -12,11 +12,18 @@
  * `supervisor_decide`, exactly the model the seat's queue implements.
  *
  * These are registered on the same gateway the agent uses, so the agent can see
- * them — but every one is gated: `claim` needs operator authority the agent's
- * session does not have, and `decide` acts only for the seat-holder, which the
- * agent never becomes. Calling them gains the agent nothing. (Hiding them from a
- * non-operator session is a per-session tool filter the gateway does not yet
- * have; noted, not required for safety.)
+ * them — but every one is gated by the adapter: `claim` needs operator authority
+ * the agent's session does not have, and `decide` acts only for the seat-holder,
+ * which the agent never becomes. Calling them gains the agent nothing. (Hiding
+ * them from a non-operator session is a per-session tool filter the gateway does
+ * not yet have; noted, not required for safety.)
+ *
+ * Each carries `bypassGate: true`, so the gateway does not run the permission
+ * gate on them. It must not: in seat mode the gate's ask-path *is* the seat, so
+ * a `supervisor_decide` put through the gate would be queued as another decision
+ * for the supervisor to answer — a reviewing-the-reviewer spiral. The reviewer's
+ * own console is not a reviewed action, the same reason the transport tools that
+ * carry the turn are not reviewed.
  *
  * @module supervisorTools
  */
@@ -29,6 +36,7 @@ export function supervisorTools(adapter) {
   return [
     {
       name: "supervisor_claim",
+      bypassGate: true,
       description:
         "Claim the supervisor seat, so pending permission decisions are offered to you. Requires operator authority; one holder at a time.",
       inputSchema: { type: "object", properties: {} },
@@ -36,6 +44,7 @@ export function supervisorTools(adapter) {
     },
     {
       name: "supervisor_pending",
+      bypassGate: true,
       description:
         "List the permission decisions waiting for the supervisor seat you hold. Each has an id, the tool, and its arguments.",
       inputSchema: { type: "object", properties: {} },
@@ -43,6 +52,7 @@ export function supervisorTools(adapter) {
     },
     {
       name: "supervisor_decide",
+      bypassGate: true,
       description:
         "Answer one pending decision by id: 'approve' allows it, 'reject' denies by policy, anything else passes it to the human.",
       inputSchema: {
@@ -57,9 +67,18 @@ export function supervisorTools(adapter) {
     },
     {
       name: "supervisor_release",
+      bypassGate: true,
       description: "Give up the supervisor seat, so decisions fall through to the human again.",
       inputSchema: { type: "object", properties: {} },
       handler: async (_args, { sessionId }) => adapter.release(sessionId),
+    },
+    {
+      name: "supervisor_force_release",
+      bypassGate: true,
+      description:
+        "Force the supervisor seat open when its holder vanished without releasing. Any operator may — the holder need not be you.",
+      inputSchema: { type: "object", properties: {} },
+      handler: async (_args, { sessionId }) => adapter.forceRelease(sessionId),
     },
   ];
 }

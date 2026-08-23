@@ -77,8 +77,10 @@ export function createGateway(options = {}) {
 
       // Transport tools carry the turn itself. Asking a human whether the agent
       // may read its own instructions asks about the wrong thing, and a denial
-      // would strand the turn rather than prevent anything.
-      const decision = TRANSPORT_TOOLS.has(name) ? { allow: true } : await gate(call);
+      // would strand the turn rather than prevent anything. `bypassGate` tools
+      // are the same shape one family further out — the supervisor's own console,
+      // which must not be a reviewed action or it reviews itself into a spiral.
+      const decision = TRANSPORT_TOOLS.has(name) || tool.bypassGate ? { allow: true } : await gate(call);
       if (!decision.allow) {
         onToolCall?.({ ...call, phase: "denied", reason: decision.reason });
         // Says who refused and whether trying again is worth anything.

@@ -93,6 +93,20 @@ export function createSupervisorAdapter(seat, { isOperator = () => false } = {})
       }
     },
 
+    /**
+     * Force the seat open when its holder vanished — the recovery for stateless
+     * MCP, where no disconnect signal ever fires. Gated by operator authority,
+     * *not* by holding the seat: the whole point is that the holder is gone, so
+     * any operator session may do it. Clears the adapter's stale holder too.
+     * @param {string} session
+     */
+    forceRelease: (session) => {
+      if (!isOperator(session)) return { ok: false, reason: "not authorized to supervise" };
+      const released = seat.forceRelease({ operator: true });
+      holder = null;
+      return { ok: released };
+    },
+
     /** Who holds the seat and how many wait — for an operator to see. */
     status: () => seat.status(),
   };

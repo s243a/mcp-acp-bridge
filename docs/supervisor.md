@@ -85,10 +85,14 @@ A connected MCP client cannot be handed a synchronous callback, so this uses the
 *pull* shape: `createSupervisorSeat()` (`supervisorSeat.js`). Run the bridge with
 `--supervisor-mcp` and it prints a **supervisor session URL** — a dedicated
 `/mcp/<token>` path, separate from any agent's. A client connected there gets
-four tools: `supervisor_claim`, `supervisor_pending`, `supervisor_decide`,
-`supervisor_release`. It claims the single seat, polls the decisions pending for
-it (each redacted to tool and args), and answers one by id; `approve` allows,
-`reject` denies by policy, anything else passes to the human.
+five tools: `supervisor_claim`, `supervisor_pending`, `supervisor_decide`,
+`supervisor_release`, and `supervisor_force_release`. It claims the single seat,
+polls the decisions pending for it (each redacted to tool and args), and answers
+one by id; `approve` allows, `reject` denies by policy, anything else passes to
+the human. The tools **bypass the permission gate** — in seat mode the gate's
+ask-path *is* the seat, so a `supervisor_decide` put through the gate would be
+queued as another decision to answer: the reviewer's own console must not be a
+reviewed action.
 
 `supervisorAdapter.js` is what binds the seat to that session: the seat's random
 token never leaves the process — the adapter holds it and identifies the client
@@ -104,8 +108,9 @@ resolve to *pass*, and only a live holder's `approve` approves.
 One property to know: MCP over stateless HTTP has no disconnect signal, so a
 supervisor that vanishes without `supervisor_release` leaves the seat nominally
 held — decisions still *pass* on the per-decision timeout, and an operator
-recovers the seat with `forceRelease`. The adapter's `disconnect` hook is there
-for a transport that *can* detect it (ACP).
+recovers the seat with `supervisor_force_release` — gated by operator authority,
+not by holding the seat, since the holder is who is gone. The adapter's
+`disconnect` hook is there for a transport that *can* detect it (ACP).
 
 Why it is worth the extra shape over spawn: a spawned reviewer starts cold every
 decision and reads only what is piped to it. A connected one is a *session* — it
