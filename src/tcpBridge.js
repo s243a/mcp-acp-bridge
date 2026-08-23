@@ -46,6 +46,8 @@ export const IDLE_MS = 30 * 60_000;
  *   agent?: string,
  *   cwd?: string,
  *   policy?: any,
+ *   supervisor?: (call: any) => Promise<string>,
+ *   whenSupervisorAbsent?: string,
  *   log?: (message: string) => void,
  *   startBridgeImpl?: typeof startBridge,
  * }} [options]
@@ -90,6 +92,12 @@ export function createTcpBridge(options = {}) {
       agent: options.agent,
       cwd: options.cwd,
       policy: options.policy,
+      // The supervisor and its absent-policy reach each per-connection bridge —
+      // without this, `--supervisor` on a `--listen` bridge was silently
+      // dropped, so the deployment shape the service plugin spawns ran every
+      // `ask` straight to the remote agent's client, unsupervised.
+      supervisor: options.supervisor,
+      whenSupervisorAbsent: options.whenSupervisorAbsent,
       log,
     });
 

@@ -107,3 +107,29 @@ test("it drops into withSupervisor: no seat falls to the human, approve allows",
   assert.equal((await pending).allow, true);
   seat.release(token);
 });
+
+test("the seat token is an unguessable string, not the generation counter", () => {
+  const seat = createSupervisorSeat();
+  const first = seat.claim({ by: "boss", operator: true });
+  assert.equal(typeof first.token, "string");
+  assert.ok(first.token.length >= 32, "a 128-bit token, not a one-digit integer");
+  assert.notEqual(first.token, "1", "not the sequential generation a non-holder could guess");
+  // A different holder after release gets a different token.
+  seat.release(first.token);
+  const second = seat.claim({ by: "boss", operator: true });
+  assert.notEqual(second.token, first.token, "each claim mints a fresh token");
+});
+
+test("forceRelease frees a seat whose holder crashed without releasing", async () => {
+  const seat = createSupervisorSeat({ timeoutMs: 60_000 });
+  seat.claim({ by: "gone", operator: true });
+  const decision = seat.supervise({ tool: "run_command" });
+
+  assert.equal(seat.forceRelease(), true, "the wedged seat is freed with no token");
+  assert.equal(await decision, PASS, "and its pending decision voids to pass, not a verdict");
+  assert.equal(seat.status().held, false, "the seat is open again");
+
+  const reclaimed = seat.claim({ by: "new", operator: true });
+  assert.equal(reclaimed.ok, true, "a new supervisor can take it");
+  seat.release(reclaimed.token);
+});

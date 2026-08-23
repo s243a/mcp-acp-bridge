@@ -149,6 +149,15 @@ if (Number.isFinite(options.listen)) {
     agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
     cwd: options.cwd ?? process.cwd(),
     policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),
+    // A supervisor here supervises every per-connection bridge. Without this a
+    // `--listen` bridge silently ignored `--supervisor` — the exact deployment
+    // the service plugin spawns, and the one that most wants review.
+    ...(options.supervisor
+      ? {
+          supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }),
+          whenSupervisorAbsent: options.requireSupervisor ? "deny" : "human",
+        }
+      : {}),
     log,
   });
   const { port } = await tcp.listen();

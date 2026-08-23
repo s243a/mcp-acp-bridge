@@ -28,6 +28,8 @@
  *
  * @module supervisorSeat
  */
+import { randomBytes } from "node:crypto";
+
 import { PASS, DEFAULT_SUPERVISOR_MS, readVerdict } from "./supervisor.js";
 
 /** At most this many decisions wait for the seat at once; beyond it, PASS. */
@@ -37,13 +39,12 @@ export const MAX_PENDING = 32;
  * @param {{ timeoutMs?: number, now?: () => number, maxPending?: number }} [options]
  */
 export function createSupervisorSeat({ timeoutMs = DEFAULT_SUPERVISOR_MS, now = Date.now, maxPending = MAX_PENDING } = {}) {
-  /** @type {{ by: string, at: number, views: string[] } | null} */
+  /** @type {{ by: string, at: number, views: string[], token: string } | null} */
   let seat = null;
-  // Bumped on every claim and release, and used as the seat token. A pending
-  // decision captures the generation it was offered under; if it changed, the
-  // seat has been released or handed on, and the decision is void. A verdict
-  // posted with a token that is not the live generation is ignored for the same
-  // reason: the authority was released, even if the answer was in flight.
+  // Bumped on every claim and release. A pending decision captures the
+  // generation it was offered under; if it changed, the seat has been released
+  // or handed on, and the decision is void. This is the race guard; the seat's
+  // random `token` is the separate thing that authorizes decide/release.
   let generation = 0;
   let nextId = 1;
 
@@ -89,24 +90,44 @@ export function createSupervisorSeat({ timeoutMs = DEFAULT_SUPERVISOR_MS, now = 
      * operator credential is presented (the fail-closed backstop described
      * above). Returns the token the holder answers with.
      * @param {{ by?: string, operator?: boolean, views?: string[] }} [claim]
-     * @returns {{ ok: true, token: number } | { ok: false, reason: string }}
+     * @returns {{ ok: true, token: string } | { ok: false, reason: string }}
      */
     claim: ({ by, operator, views = ["tool-args"] } = {}) => {
       if (!operator) return { ok: false, reason: "claiming the supervisor seat requires operator authority" };
       if (seat) return { ok: false, reason: `the seat is held by ${seat.by}` };
-      seat = { by: String(by ?? "unknown"), at: now(), views: [...views] };
+      // The token is a CSPRNG string, not the generation counter: `generation`
+      // is a small sequential integer used only for the born-race check, and a
+      // guessable token would let a non-holder decide with a one-digit brute
+      // force if an adapter ever slipped on session-binding. Unguessable by
+      // construction shrinks that from a discipline to a property.
+      const token = randomBytes(16).toString("hex");
+      seat = { by: String(by ?? "unknown"), at: now(), views: [...views], token };
       generation += 1;
-      return { ok: true, token: generation };
+      return { ok: true, token };
     },
 
     /**
      * Release the seat. Only its current holder's token may, and doing so voids
      * anything still pending — to PASS, never to a verdict the departing holder
      * did not give.
-     * @param {number} token
+     * @param {string} token
      */
     release: (token) => {
-      if (!seat || token !== generation) return false;
+      if (!seat || token !== seat.token) return false;
+      seat = null;
+      generation += 1;
+      voidAll();
+      return true;
+    },
+
+    /**
+     * Release whoever holds the seat, no token needed — for a holder that
+     * crashed without releasing and would otherwise wedge the seat until the
+     * bridge restarts (every claim refused, every decision queuing to PASS). The
+     * adapter gates this behind operator authority, the same bar as `claim`.
+     */
+    forceRelease: () => {
+      if (!seat) return false;
       seat = null;
       generation += 1;
       voidAll();
@@ -116,10 +137,10 @@ export function createSupervisorSeat({ timeoutMs = DEFAULT_SUPERVISOR_MS, now = 
     /**
      * The decisions waiting for the current holder, each cut down to the views
      * its claim was granted. The holder reads this and answers by id.
-     * @param {number} token
+     * @param {string} token
      */
     pending: (token) => {
-      if (!seat || token !== generation) return [];
+      if (!seat || token !== seat.token) return [];
       return [...queue.entries()].map(([id, entry]) => ({ id, ...redact(entry.call, seat.views) }));
     },
 
@@ -129,10 +150,10 @@ export function createSupervisorSeat({ timeoutMs = DEFAULT_SUPERVISOR_MS, now = 
      * decision was offered under it. The verdict itself goes through the same
      * `readVerdict` the whole supervisor uses, so `approve` is the only thing
      * that approves and everything else is a deferral.
-     * @param {number} token @param {string} id @param {string} verdict
+     * @param {string} token @param {string} id @param {string} verdict
      */
     decide: (token, id, verdict) => {
-      if (!seat || token !== generation) return false;
+      if (!seat || token !== seat.token) return false;
       const entry = queue.get(id);
       if (!entry || entry.born !== generation) return false;
       settle(id, readVerdict(verdict));

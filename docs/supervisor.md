@@ -193,8 +193,12 @@ inversion has to be closed explicitly or the mode ships a self-approval path:
 - **The MCP and ACP transports themselves** — the `supervisor/claim`,
   `supervisor/pending`, `supervisor/decide` methods a connected client calls,
   the operator-authority check that gates the claim, and the session-binding
-  that ties `decide`/`release` to the holder (the seat's token guards races, not
-  identity). The seat and its queue — `createSupervisorSeat` — are built and
+  that ties `decide`/`release` to the holder. The seat's token is an unguessable
+  128-bit string (not the generation counter), so a slipped session-binding is
+  not a one-digit brute force — but the adapter must still avoid leaking it. A
+  holder that crashes without releasing is recovered by `forceRelease` (operator
+  authority, same bar as claim), so a lost seat does not wedge the bridge until
+  restart. The seat and its queue — `createSupervisorSeat` — are built and
   tested; only this transport glue is not.
 - **More than one supervisor.** A panel that must agree, or a cheap one that
   escalates to an expensive one, is just nested `withSupervisor` — worth stating
