@@ -22,6 +22,9 @@ import { buildInitialPrompt, getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
 import { makePolicy, withPolicy } from "./policy.js";
 import { withSupervisor } from "./supervisor.js";
+import { createSupervisorSeat } from "./supervisorSeat.js";
+import { createSupervisorAdapter } from "./supervisorAdapter.js";
+import { supervisorTools } from "./supervisorTools.js";
 
 /**
  * @param {{
@@ -57,8 +60,21 @@ export async function startBridge(options = {}) {
   // first — but every way it can fail resolves to this same human, never to an
   // allow. See supervisor.js.
   const human = (call) => acp.decide(call);
-  const decideWithReview = options.supervisor
-    ? withSupervisor(options.supervisor, human, { log, whenAbsent: options.whenSupervisorAbsent })
+
+  // A seat-based supervisor: a client connects over MCP, claims the seat, and
+  // decisions are offered to it. The seat is built here so its tools can ride
+  // the gateway; the operator session that may claim it is created after the
+  // gateway and recorded in this set (empty until then, so nobody can claim
+  // early). `seat.supervise` is the decider when a seat is configured; a spawn
+  // supervisor otherwise; the human if neither.
+  const supervisorSessionIds = new Set();
+  const seat = options.seatSupervisor ? createSupervisorSeat() : null;
+  const supervisorAdapter = seat
+    ? createSupervisorAdapter(seat, { isOperator: (session) => supervisorSessionIds.has(session) })
+    : null;
+  const supervise = seat ? seat.supervise : options.supervisor;
+  const decideWithReview = supervise
+    ? withSupervisor(supervise, human, { log, whenAbsent: options.whenSupervisorAbsent })
     : human;
 
   const gate = makeGate(
@@ -127,6 +143,7 @@ export async function startBridge(options = {}) {
       ...execTools,
       ...fileTools,
       ...(taskChannel?.toolDefinitions() ?? []),
+      ...(supervisorAdapter ? supervisorTools(supervisorAdapter) : []),
     ],
     // Verdicts are remembered so a call the agent also prompts about on its
     // terminal is not put to the user a second time.
@@ -135,6 +152,16 @@ export async function startBridge(options = {}) {
   });
 
   const server = await gateway.listen();
+
+  // The supervisor's own session — separate from any agent's, and the only one
+  // `isOperator` recognises, so claiming the seat requires holding this path,
+  // not merely reaching the endpoint. Its URL is what an operator hands to a
+  // supervisor client.
+  if (supervisorAdapter) {
+    const supervisorSession = gateway.openSession();
+    supervisorSessionIds.add(supervisorSession.sessionId);
+    log(`[supervisor] seat open — connect a supervisor MCP client at ${server.url(supervisorSession.token)}`);
+  }
 
   acp = createAcpServer({
     input: options.input,
@@ -353,6 +380,10 @@ export async function startBridge(options = {}) {
     gateway,
     port: server.port,
     policy: defaultPolicy,
+    // Present only in seat mode: lets a host see who holds the seat and recover
+    // it (forceRelease) if a supervisor vanished without releasing.
+    supervisor: supervisorAdapter,
+    seat,
     async close() {
       // Sessions may still hold a workspace registration; leaving one behind
       // would put a stale endpoint in someone's project.

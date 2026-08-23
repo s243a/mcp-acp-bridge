@@ -4,7 +4,7 @@ A decider that sits between the policy and the human. Where policy falls through
 to *ask*, a supervisor may answer first — approve, reject, or **pass to the
 human** — so the routine is handled and only the unfamiliar escalates.
 
-**Built: the seam, the spawn mode, and the seat/queue the two late-binding modes share. Designed: the MCP and ACP transports that drive the seat.**
+**Built: the seam, the spawn mode, the seat/queue, and the MCP transport. Designed: the ACP transport (the same seat, a different surface).**
 
 ## The one rule everything else serves
 
@@ -74,25 +74,38 @@ What is fixed is the contract: JSON in, a word out, silence means pass.
 The call is redacted to `{tool, args}` before it crosses: a supervisor decides on
 what will happen, not on the session's internals.
 
-### 2. MCP — designed, late-bound
+### 2. MCP — built
 
 The bridge already runs an MCP endpoint for the agent's tools. A supervisor could
 connect to it as a *second* client and register as the decider — the bridge
 exposes a tool the supervisor calls to claim the seat, and each pending decision
 is offered to it and awaits its answer.
 
-Two seams exist for this. `createExternalSupervisor()` is the *push* shape —
-`bind(handler)` makes a function the decider — but a connected MCP client cannot
-be handed a synchronous callback, so the late-binding modes use the *pull* shape
-instead: `createSupervisorSeat()` (built, in `supervisorSeat.js`). A client
-`claim`s the single seat, reads the decisions `pending` for it, and posts a
-verdict by id with `decide`; `status` is what a person reads to see who holds it.
-Every fail-safe path is the seat's already — no seat, a full queue, a timeout, a
-release, a stale token all resolve to *pass*, and only a live holder's `approve`
-approves. What is unbuilt is only the MCP *transport*: the `supervisor/claim`,
-`supervisor/pending`, and `supervisor/decide` tools that a connected client
-calls, and the operator-authority check that gates the claim. The decision logic
-they drive is done.
+A connected MCP client cannot be handed a synchronous callback, so this uses the
+*pull* shape: `createSupervisorSeat()` (`supervisorSeat.js`). Run the bridge with
+`--supervisor-mcp` and it prints a **supervisor session URL** — a dedicated
+`/mcp/<token>` path, separate from any agent's. A client connected there gets
+four tools: `supervisor_claim`, `supervisor_pending`, `supervisor_decide`,
+`supervisor_release`. It claims the single seat, polls the decisions pending for
+it (each redacted to tool and args), and answers one by id; `approve` allows,
+`reject` denies by policy, anything else passes to the human.
+
+`supervisorAdapter.js` is what binds the seat to that session: the seat's random
+token never leaves the process — the adapter holds it and identifies the client
+by *which session its calls arrive on*, which the opaque path makes unforgeable.
+`isOperator` gates the claim to the supervisor session the bridge created, so
+reaching the endpoint is not enough; and only the seat-holder's session is
+offered decisions or may decide. The same tools are visible to the agent's
+session (one gateway), but every one is gated — the agent is not an operator and
+never holds the seat, so calling them gains it nothing. Every fail-safe path is
+the seat's: no seat, a full queue, a timeout, a release, a stale token all
+resolve to *pass*, and only a live holder's `approve` approves.
+
+One property to know: MCP over stateless HTTP has no disconnect signal, so a
+supervisor that vanishes without `supervisor_release` leaves the seat nominally
+held — decisions still *pass* on the per-decision timeout, and an operator
+recovers the seat with `forceRelease`. The adapter's `disconnect` hook is there
+for a transport that *can* detect it (ACP).
 
 Why it is worth the extra shape over spawn: a spawned reviewer starts cold every
 decision and reads only what is piped to it. A connected one is a *session* — it
@@ -190,16 +203,13 @@ inversion has to be closed explicitly or the mode ships a self-approval path:
 
 ## Open
 
-- **The MCP and ACP transports themselves** — the `supervisor/claim`,
-  `supervisor/pending`, `supervisor/decide` methods a connected client calls,
-  the operator-authority check that gates the claim, and the session-binding
-  that ties `decide`/`release` to the holder. The seat's token is an unguessable
-  128-bit string (not the generation counter), so a slipped session-binding is
-  not a one-digit brute force — but the adapter must still avoid leaking it. A
-  holder that crashes without releasing is recovered by `forceRelease` (operator
-  authority, same bar as claim), so a lost seat does not wedge the bridge until
-  restart. The seat and its queue — `createSupervisorSeat` — are built and
-  tested; only this transport glue is not.
+- **The ACP transport** — the same seat and adapter, over ACP methods a
+  supervising *agent* calls rather than MCP tools. `supervisorAdapter` is
+  transport-free and its `disconnect` hook fits ACP's connection lifecycle
+  cleanly (unlike stateless MCP), so this is a thin surface: map the ACP methods
+  to `claim`/`pending`/`decide`/`release` with the connection as the session.
+  The MCP transport (`supervisorTools`, `--supervisor-mcp`) is built and tested;
+  this is what remains.
 - **More than one supervisor.** A panel that must agree, or a cheap one that
   escalates to an expensive one, is just nested `withSupervisor` — worth stating
   that the composition is free, once the modes exist to compose.

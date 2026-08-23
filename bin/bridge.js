@@ -69,6 +69,12 @@ function parseArgs(argv) {
         // operation where the supervisor is the only intended reviewer.
         options.requireSupervisor = true;
         break;
+      case "--supervisor-mcp":
+        // A seat a supervisor claims over MCP, instead of a per-decision command.
+        // The bridge prints a supervisor session URL; a client connected there
+        // claims the seat and answers pending decisions. See docs/supervisor.md.
+        options.seatSupervisor = true;
+        break;
       case "--policy":
         // A preset name, or a path to a JSON file holding {rules, default}.
         options.policy = argv[++i];
@@ -176,6 +182,7 @@ let bridge;
 try {
   bridge = await startBridge({
     agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
+    seatSupervisor: options.seatSupervisor,
     ...(options.supervisor
       ? {
           supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }),
