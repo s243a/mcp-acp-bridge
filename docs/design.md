@@ -636,7 +636,15 @@ re-authenticate what the fabric already did — which is the same division of
 labour as everywhere else in this design: peerhailer answers *who*, the bridge
 answers *what*.
 
-### How T3 launches this, and why the client side is a drop-in
+### How T3 launches this, and why the near end is a router
+
+> Superseded in part by [acp-relay.md](acp-relay.md): the stdio shim below is a
+> special case of a relay that routes ACP to a *named destination*, where local
+> and remote are the same path with a different exit — and, more importantly, the
+> relay is where method policy and the supervisor attach, which a shim could not
+> host.
+
+
 
 T3 has no concept of "the bridge". Its ACP driver has one setting, `command`,
 described in its own schema as *"Executable that speaks ACP over stdio"*, plus an
