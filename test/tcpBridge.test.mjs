@@ -134,3 +134,27 @@ test("close waits for sessions rather than returning before they end", async () 
   );
   socket.destroy();
 });
+
+test("close does not hang on a bridge that never finishes starting", async () => {
+  // A startBridge that never resolves — port contention, a wedged dependency.
+  // Teardown must not await it, or shutdown waits on something that may never
+  // finish (the shape of the Ctrl-C bug, reintroduced by the fix for the last).
+  let settle;
+  const wedged = new Promise((resolve) => (settle = resolve));
+  const bridge = createTcpBridge({ startBridgeImpl: () => wedged });
+  const { port } = await bridge.listen();
+
+  const socket = connect({ host: "127.0.0.1", port });
+  await new Promise((resolve) => socket.once("connect", resolve));
+  await new Promise((resolve) => setTimeout(resolve, 30)); // let the session register
+
+  await assert.doesNotReject(
+    Promise.race([
+      bridge.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("close hung on a starting bridge")), 3000)),
+    ]),
+    "close returns even while a bridge is still starting",
+  );
+  socket.destroy();
+  settle?.({ close: () => {} }); // let the wedged promise resolve to a closeable stub
+});

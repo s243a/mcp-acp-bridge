@@ -47,11 +47,15 @@ export const IDLE_MS = 30 * 60_000;
  *   cwd?: string,
  *   policy?: any,
  *   log?: (message: string) => void,
+ *   startBridgeImpl?: typeof startBridge,
  * }} [options]
  */
 export function createTcpBridge(options = {}) {
   const host = options.host ?? "127.0.0.1";
   const log = options.log ?? (() => {});
+  // Injectable so a test can hold startup open and prove that teardown and
+  // `close()` do not wait on it.
+  const spawnBridge = options.startBridgeImpl ?? startBridge;
 
   /** One bridge per live connection, so a dropped socket tears down its agent. */
   const sessions = new Set();
@@ -80,7 +84,7 @@ export function createTcpBridge(options = {}) {
     // The socket is both halves of the transport. A bridge started on it answers
     // `initialize`, spawns the agent on the first prompt, and streams updates
     // back down the same socket.
-    const started = startBridge({
+    const started = spawnBridge({
       input: socket,
       output: socket,
       agent: options.agent,
@@ -89,18 +93,34 @@ export function createTcpBridge(options = {}) {
       log,
     });
 
-    /** @type {{socket: import("node:net").Socket, started: any, end: () => Promise<void>}} */
-    const session = { socket, started, end: async () => {} };
+    /** @type {{socket: import("node:net").Socket, bridge: any, ended: boolean, end: () => Promise<void>}} */
+    const session = { socket, bridge: null, ended: false, end: async () => {} };
     sessions.add(session);
     log(`[tcp] a client connected from ${socket.remoteAddress ?? "an unknown address"}`);
 
-    // The teardown, kept as a promise so `close()` can await it: an agent that
-    // outlives its listener is a subprocess nobody will ever stop.
+    // Startup runs on its own. When it settles, either the session is still live
+    // and we hold the bridge, or it already ended and we close the bridge the
+    // moment it exists — so a bridge that finishes starting *after* teardown
+    // still gets stopped rather than leaked.
+    started.then(
+      (bridge) => {
+        session.bridge = bridge;
+        if (session.ended) bridge?.close?.();
+      },
+      (error) => log(`[tcp] a session failed to start: ${error instanceof Error ? error.message : error}`),
+    );
+
+    // Teardown never awaits startup — that is what turned the previous fix for
+    // "close returns too early" into "close may never return", when a bridge
+    // that hangs in `startBridge` made every `end()` await it forever. It closes
+    // the bridge if startup has produced one, and marks the session ended so the
+    // continuation above closes it if startup is still in flight.
     session.end = async () => {
       if (!sessions.has(session)) return;
       sessions.delete(session);
+      session.ended = true;
       try {
-        (await started)?.close?.();
+        await session.bridge?.close?.();
       } catch (error) {
         log(`[tcp] closing a session failed: ${error instanceof Error ? error.message : error}`);
       }

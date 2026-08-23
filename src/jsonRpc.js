@@ -32,8 +32,15 @@ export function createPeer({ input, output, onError }) {
     // this without bound — a slow-loris on the transport. The messages are
     // small, so a line this long is not a message; drop the connection.
     if (buffer.length > MAX_LINE) {
+      // Fail the transport, not just the socket. `input.destroy()` emits `close`
+      // and not `end`, so the `end` handler below would never run — pending
+      // requests would hang forever and `send()` would write into a dead
+      // stream. Do here what `end` does: mark closed and reject what is waiting.
       onError?.(new Error("line exceeded the maximum length"), "input");
       buffer = "";
+      closed = true;
+      for (const { reject } of pending.values()) reject(new Error("connection closed"));
+      pending.clear();
       input.destroy?.();
       return;
     }
