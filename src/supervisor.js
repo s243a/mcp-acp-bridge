@@ -54,7 +54,7 @@ export const DEFAULT_SUPERVISOR_MS = 20_000;
 export const WHEN_ABSENT = { HUMAN: "human", DENY: "deny" };
 
 /** Its answer, and how much of it we trust. */
-const readVerdict = (raw) => {
+export const readVerdict = (raw) => {
   // The first token, not a prefix. `startsWith("approve")` accepted
   // `approveNOT` — a string-matching bug that fails toward *allow*, the wrong
   // direction for a component whose whole invariant is fail-closed. `approve

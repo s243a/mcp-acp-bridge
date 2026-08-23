@@ -4,7 +4,7 @@ A decider that sits between the policy and the human. Where policy falls through
 to *ask*, a supervisor may answer first — approve, reject, or **pass to the
 human** — so the routine is handled and only the unfamiliar escalates.
 
-**Built: the seam and the spawn mode. Designed: the two late-binding modes.**
+**Built: the seam, the spawn mode, and the seat/queue the two late-binding modes share. Designed: the MCP and ACP transports that drive the seat.**
 
 ## The one rule everything else serves
 
@@ -81,11 +81,18 @@ connect to it as a *second* client and register as the decider — the bridge
 exposes a tool the supervisor calls to claim the seat, and each pending decision
 is offered to it and awaits its answer.
 
-`createExternalSupervisor()` is the seam: `bind(handler)` makes a function the
-decider, `unbind()` releases it, and while nothing is bound every call passes to
-the human. What is unbuilt is the MCP surface that turns a connected client's
-tool calls into `bind`/answer — a `supervisor/claim`, a `supervisor/decide`, and
-the plumbing that hands each pending call to whoever claimed the seat.
+Two seams exist for this. `createExternalSupervisor()` is the *push* shape —
+`bind(handler)` makes a function the decider — but a connected MCP client cannot
+be handed a synchronous callback, so the late-binding modes use the *pull* shape
+instead: `createSupervisorSeat()` (built, in `supervisorSeat.js`). A client
+`claim`s the single seat, reads the decisions `pending` for it, and posts a
+verdict by id with `decide`; `status` is what a person reads to see who holds it.
+Every fail-safe path is the seat's already — no seat, a full queue, a timeout, a
+release, a stale token all resolve to *pass*, and only a live holder's `approve`
+approves. What is unbuilt is only the MCP *transport*: the `supervisor/claim`,
+`supervisor/pending`, and `supervisor/decide` tools that a connected client
+calls, and the operator-authority check that gates the claim. The decision logic
+they drive is done.
 
 Why it is worth the extra shape over spawn: a spawned reviewer starts cold every
 decision and reads only what is piped to it. A connected one is a *session* — it
@@ -183,9 +190,12 @@ inversion has to be closed explicitly or the mode ships a self-approval path:
 
 ## Open
 
-- **The MCP and ACP surfaces themselves** — the claim/decide methods and the
-  queue that offers pending calls to the bound decider. `createExternalSupervisor`
-  is built; what feeds it is not.
+- **The MCP and ACP transports themselves** — the `supervisor/claim`,
+  `supervisor/pending`, `supervisor/decide` methods a connected client calls,
+  the operator-authority check that gates the claim, and the session-binding
+  that ties `decide`/`release` to the holder (the seat's token guards races, not
+  identity). The seat and its queue — `createSupervisorSeat` — are built and
+  tested; only this transport glue is not.
 - **More than one supervisor.** A panel that must agree, or a cheap one that
   escalates to an expensive one, is just nested `withSupervisor` — worth stating
   that the composition is free, once the modes exist to compose.
