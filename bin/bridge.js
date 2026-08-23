@@ -49,6 +49,14 @@ function parseArgs(argv) {
       case "--listen-host":
         options.listenHost = argv[++i];
         break;
+      case "--announce-port":
+        // Print the bound port as one JSON line `{"port":N}` to stdout once
+        // listening. For a launcher that started us with `--listen 0` (an
+        // ephemeral OS-assigned port) and needs the real number back — e.g.
+        // peerhailer's service plugin in report mode, which reads this so the
+        // port it hands a caller is one we actually bound, not one we were told.
+        options.announcePort = true;
+        break;
       case "--supervisor":
         // A command run per decision — the call on stdin, `approve|reject|pass`
         // on stdout. It cannot fail open. The two late-binding modes (MCP, ACP)
@@ -145,6 +153,9 @@ if (Number.isFinite(options.listen)) {
   });
   const { port } = await tcp.listen();
   log(`[bridge] listening for ACP on ${host}:${port}`);
+  // stdout is otherwise silent in listen mode (ACP rides the TCP socket, logs
+  // go to stderr), so a launcher can read this one line unambiguously.
+  if (options.announcePort) process.stdout.write(`${JSON.stringify({ port })}\n`);
   if (host !== "127.0.0.1" && host !== "localhost") {
     log(`[bridge] warning: ${host} is not loopback — this agent has no authentication of its own`);
   }
