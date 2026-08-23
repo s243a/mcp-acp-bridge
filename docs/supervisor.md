@@ -9,9 +9,11 @@ human** — so the routine is handled and only the unfamiliar escalates.
 ## The one rule everything else serves
 
 **It can never fail open.** A supervisor that is slow, absent, crashed, or unsure
-resolves to *pass to the human* — never to allow. Every path in `supervisor.js`
-funnels there: a throw, an unparseable verdict, an empty answer, a timeout, and
-"nobody is bound yet" all become `pass`. The design failure this avoids is the
+resolves to *pass* — never to allow. Every path in `supervisor.js` funnels
+there: a throw, an unparseable verdict, an empty answer, a timeout, and "nobody
+is bound yet" all become `pass`. What `pass` then *means* is the operator's
+choice — fall through to the human, or refuse — but it is never an approval (see
+below). The design failure this avoids is the
 supervisor that quietly approves rather than admitting it does not know. A
 reject, likewise, is reported as `denied-by-policy` and not as a human refusal,
 so the agent is told a *policy* decided — it must not act as though a person
