@@ -125,7 +125,8 @@ test("forceRelease frees a seat whose holder crashed without releasing", async (
   seat.claim({ by: "gone", operator: true });
   const decision = seat.supervise({ tool: "run_command" });
 
-  assert.equal(seat.forceRelease(), true, "the wedged seat is freed with no token");
+  assert.equal(seat.forceRelease({}), false, "no operator credential — refused, like claim");
+  assert.equal(seat.forceRelease({ operator: true }), true, "the wedged seat is freed with no token");
   assert.equal(await decision, PASS, "and its pending decision voids to pass, not a verdict");
   assert.equal(seat.status().held, false, "the seat is open again");
 

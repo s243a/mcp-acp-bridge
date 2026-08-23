@@ -123,10 +123,15 @@ export function createSupervisorSeat({ timeoutMs = DEFAULT_SUPERVISOR_MS, now = 
     /**
      * Release whoever holds the seat, no token needed — for a holder that
      * crashed without releasing and would otherwise wedge the seat until the
-     * bridge restarts (every claim refused, every decision queuing to PASS). The
-     * adapter gates this behind operator authority, the same bar as `claim`.
+     * bridge restarts (every claim refused, every decision queuing to PASS).
+     * Requires the same `operator` credential as `claim`: the adapter enforces
+     * operator authority, and this is the fail-closed backstop if it forgets. A
+     * kicked seat only ever voids to PASS, so the worst abuse is seat-DoS — but
+     * the two authority paths should be symmetric.
+     * @param {{ operator?: boolean }} [options]
      */
-    forceRelease: () => {
+    forceRelease: ({ operator } = {}) => {
+      if (!operator) return false;
       if (!seat) return false;
       seat = null;
       generation += 1;
