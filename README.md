@@ -148,6 +148,27 @@ the `agy-sandboxed` profile, is described by agy as *terminal restrictions*. In
 testing it did not stop file reads outside the workspace, with or without the
 flag. It is not an OS sandbox and should not be relied on as one.
 
+### A supervisor to answer the reviews
+
+Review shows you the command, but a person cannot sit on every prompt. A
+**supervisor** is a decider that sits in front of the human on the same seam:
+it may approve, reject, or *pass to the human*, and every way it can fail —
+unavailable, malformed verdict, timed out — resolves to pass, never to allow.
+Four ways to supply one:
+
+| Flag | The supervisor is… |
+| --- | --- |
+| `--supervisor <cmd>` | a command run per decision; its stdout is the verdict |
+| `--supervisor-mcp` | a client that claims a seat over MCP and answers pending decisions |
+| `--supervisor-acp [port]` | the same seat over ACP, for a supervisor that is itself an agent (it polls a queue) |
+| `--supervisor-acp-push [port]` | an agent the bridge *asks* — each deferred decision is sent as a `supervisor/review` request whose reply is the verdict |
+
+This is how one agent supervises another — a larger model watching a smaller
+one's tool calls — without a person on every card. The ACP modes gate on a
+token the bridge prints to its console, since the supervised agent can reach the
+same loopback port. Design, the fail-closed guarantees, and the precedence
+between modes: [docs/supervisor.md](docs/supervisor.md).
+
 ## MCP revision support
 
 Both the current and the incoming revisions are supported, because the bridge
