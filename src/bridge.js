@@ -22,11 +22,12 @@ import { prepareWorkspace } from "./workspaceConfig.js";
 import { buildInitialPrompt, getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
 import { makePolicy, withPolicy } from "./policy.js";
-import { withSupervisor } from "./supervisor.js";
+import { withSupervisor, createExternalSupervisor } from "./supervisor.js";
 import { createSupervisorSeat } from "./supervisorSeat.js";
 import { createSupervisorAdapter } from "./supervisorAdapter.js";
 import { supervisorTools } from "./supervisorTools.js";
 import { createSupervisorAcpServer } from "./supervisorAcp.js";
+import { createSupervisorAcpPushServer } from "./supervisorAcpPush.js";
 
 /**
  * @param {{
@@ -75,7 +76,11 @@ export async function startBridge(options = {}) {
   const supervisorAdapter = seat
     ? createSupervisorAdapter(seat, { isOperator: (session) => supervisorSessionIds.has(session) })
     : null;
-  const supervise = seat ? seat.supervise : options.supervisor;
+  // The push ACP supervisor: an agent the bridge *asks*, over the external-
+  // supervisor seam, rather than one that polls the seat. When configured it is
+  // the decider, ahead of a seat or a spawn command.
+  const externalSupervisor = options.supervisorAcpPush ? createExternalSupervisor() : null;
+  const supervise = externalSupervisor ? externalSupervisor.supervise : seat ? seat.supervise : options.supervisor;
   const decideWithReview = supervise
     ? withSupervisor(supervise, human, { log, whenAbsent: options.whenSupervisorAbsent })
     : human;
@@ -212,6 +217,49 @@ export async function startBridge(options = {}) {
     supervisorAcpPort = supervisorAcpNet.address().port;
     log(`[supervisor] ACP seat open — connect a supervisor ACP client to 127.0.0.1:${supervisorAcpPort}`);
     log(`[supervisor] authenticate with token: ${supervisorAcpToken}`);
+    log("[supervisor] this token is the credential — anything that can read this console can supervise; do not tunnel this port without it");
+  }
+
+  // The push ACP surface: the mirror of the block above. Where the pull surface
+  // hands the seat's queue to a polling agent, this hands each deferred decision
+  // to the agent as a `supervisor/review` request and takes its reply as the
+  // verdict. It rides `externalSupervisor` (the push seam), so an authenticated
+  // connection *becomes* the decider and its close releases it — no seat, no
+  // force-release. Same token door: reaching this loopback port is not authority.
+  const supervisorAcpPushServers = new Set();
+  const supervisorAcpPushSockets = new Set();
+  let supervisorAcpPushNet = null;
+  let supervisorAcpPushPort = null;
+  let supervisorAcpPushToken = null;
+  if (externalSupervisor) {
+    const { createServer: createNetServer } = await import("node:net");
+    supervisorAcpPushToken = randomBytes(24).toString("base64url");
+    supervisorAcpPushNet = createNetServer((socket) => {
+      socket.setNoDelay(true);
+      supervisorAcpPushSockets.add(socket);
+      const pushServer = createSupervisorAcpPushServer({
+        input: socket,
+        output: socket,
+        supervisor: externalSupervisor,
+        token: supervisorAcpPushToken,
+        log,
+        onError: (error, method) => log(`[supervisor-acp-push] ${method} failed: ${error?.message}`),
+      });
+      supervisorAcpPushServers.add(pushServer);
+      const cleanup = () => {
+        supervisorAcpPushServers.delete(pushServer);
+        supervisorAcpPushSockets.delete(socket);
+        pushServer.close();
+      };
+      socket.on("close", cleanup);
+      socket.on("error", cleanup);
+      log("[supervisor] an ACP push client connected (unauthenticated until it presents the token)");
+    });
+    const requestedPushPort = Number.isInteger(options.supervisorAcpPush) ? options.supervisorAcpPush : 0;
+    await new Promise((resolve) => supervisorAcpPushNet.listen(requestedPushPort, "127.0.0.1", () => resolve(undefined)));
+    supervisorAcpPushPort = supervisorAcpPushNet.address().port;
+    log(`[supervisor] ACP push endpoint open — connect a supervising agent to 127.0.0.1:${supervisorAcpPushPort}`);
+    log(`[supervisor] authenticate with token: ${supervisorAcpPushToken}`);
     log("[supervisor] this token is the credential — anything that can read this console can supervise; do not tunnel this port without it");
   }
 
@@ -436,10 +484,18 @@ export async function startBridge(options = {}) {
     // it (forceRelease) if a supervisor vanished without releasing.
     supervisor: supervisorAdapter,
     seat,
+    // The push seam, present only in --supervisor-acp-push mode: lets a host
+    // route a decision through whatever supervisor is bound (the connected
+    // agent, or the human when none is).
+    supervisorPush: externalSupervisor,
     // The TCP port an ACP supervisor connects to, and the token it must present
     // to authenticate — when --supervisor-acp is on.
     supervisorAcpPort,
     supervisorAcpToken,
+    // The TCP port a *push* ACP supervisor connects to, and the token it must
+    // present — when --supervisor-acp-push is on.
+    supervisorAcpPushPort,
+    supervisorAcpPushToken,
     async close() {
       // Sessions may still hold a workspace registration; leaving one behind
       // would put a stale endpoint in someone's project.
@@ -457,6 +513,11 @@ export async function startBridge(options = {}) {
       for (const acpSupervisor of supervisorAcpServers) acpSupervisor.close();
       supervisorAcpServers.clear();
       if (supervisorAcpNet) await new Promise((resolve) => supervisorAcpNet.close(() => resolve(undefined)));
+      for (const socket of supervisorAcpPushSockets) socket.destroy();
+      supervisorAcpPushSockets.clear();
+      for (const pushServer of supervisorAcpPushServers) pushServer.close();
+      supervisorAcpPushServers.clear();
+      if (supervisorAcpPushNet) await new Promise((resolve) => supervisorAcpPushNet.close(() => resolve(undefined)));
       await server.close();
       acp.peer.close();
     },

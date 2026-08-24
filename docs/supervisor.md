@@ -51,9 +51,9 @@ supervisor` pairs cleanly with the *spawn* mode, which is always present; with a
 late-bound mode the operator is accepting deny-windows and should be told so, and
 the claim event logged as loudly as decisions.
 
-## Three modes, one interface
+## Four modes, one interface
 
-A supervisor is `(call) => Promise<"approve" | "reject" | "pass">`. Three ways to
+A supervisor is `(call) => Promise<"approve" | "reject" | "pass">`. Four ways to
 supply that function:
 
 ### 1. Spawn — built
@@ -136,14 +136,39 @@ agent supervise another* — a larger model watching a smaller one's actions.
 It reuses the built seat and `supervisorAdapter` unchanged (`supervisorAcp.js` is
 the surface) — pull, not push: the client polls `supervisor/pending` and posts
 `supervisor/decide`, the same queue MCP drives, so one hardened seat serves both
-transports with no second decision path. A push variant — the bridge raising each
-decision as an ACP request the agent answers, via `createExternalSupervisor` — is
-the more agent-idiomatic shape and remains possible on the same seat; pull was
-chosen to keep a single, tested decision path.
+transports with no second decision path.
 
 **ACP has what stateless MCP lacks: a disconnect signal.** A closed connection
 frees the seat immediately (`adapter.disconnect`), so a supervisor that drops does
 not wedge it — the case MCP needs `force_release` for resolves on its own here.
+
+### 4. ACP push — built
+
+The mirror of mode 3, and the more agent-idiomatic shape. Run the bridge with
+`--supervisor-acp-push [port]` and it opens a **TCP endpoint** a supervising agent
+connects to — but the direction reverses: instead of the agent polling a seat, the
+bridge sends **each deferred decision to the agent as a `supervisor/review`
+request** (`{tool, args}`, redacted the same way), and the agent's reply is the
+verdict. Exactly how the bridge already raises `session/request_permission` to an
+ACP client — an agent that supervises is asked, not made to poll.
+
+The door is identical to mode 3: reaching the loopback port is not authority (the
+supervised agent can reach it too), so the connection becomes the decider only
+after presenting the **token the bridge prints to its console** via ACP
+`authenticate`. This mode sits on `createExternalSupervisor` (the push *seam*)
+rather than the seat: on authentication the connection *binds* as the decider, and
+its close *unbinds* it — decisions fall back to the human with no force-release.
+The seam's **generation token** discards a verdict still in flight when the
+supervisor drops (fail-closed, never a stale allow), and a review the agent never
+answers resolves to a deferral on the seam's own timeout, so a slow or silent
+reviewer never hangs the gate. Verdicts read through the same `readVerdict` as
+every mode — `approve` is the only thing that approves; `reject`, `pass`, empty,
+or garbage all defer to the human.
+
+`supervisorAcpPush.js` is the surface. Pull (mode 3) and push (mode 4) are
+separate decision paths on purpose — pull drives the shared seat queue, push
+drives the external seam — but both fail toward the human and both gate on the
+same console token.
 
 ## What a supervisor chooses to read
 
@@ -223,12 +248,6 @@ inversion has to be closed explicitly or the mode ships a self-approval path:
 
 ## Open
 
-- **A push ACP variant.** Both transports are built and tested (`--supervisor-mcp`,
-  `--supervisor-acp`), both pull. The remaining option, not a gap, is the *push*
-  ACP shape — the bridge raising each decision as an ACP request the supervising
-  agent answers, rather than the agent polling. It is more agent-idiomatic and
-  sits on the same seat via `createExternalSupervisor`; worth building if a real
-  agent-supervisor prefers being asked over polling.
 - **More than one supervisor.** A panel that must agree, or a cheap one that
   escalates to an expensive one, is just nested `withSupervisor` — worth stating
   that the composition is free, once the modes exist to compose.

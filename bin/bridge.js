@@ -88,6 +88,21 @@ function parseArgs(argv) {
         }
         break;
       }
+      case "--supervisor-acp-push": {
+        // The push shape: instead of the agent polling a seat, the bridge sends
+        // each deferred decision to the agent as a `supervisor/review` request
+        // and takes its reply as the verdict. Opens a TCP endpoint (an optional
+        // port follows, else ephemeral); its disconnect returns decisions to the
+        // human. See docs/supervisor.md.
+        const next = argv[i + 1];
+        if (typeof next === "string" && /^\d+$/.test(next)) {
+          options.supervisorAcpPush = Number(next);
+          i += 1;
+        } else {
+          options.supervisorAcpPush = true;
+        }
+        break;
+      }
       case "--policy":
         // A preset name, or a path to a JSON file holding {rules, default}.
         options.policy = argv[++i];
@@ -197,6 +212,7 @@ try {
     agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
     seatSupervisor: options.seatSupervisor,
     supervisorAcp: options.supervisorAcp,
+    supervisorAcpPush: options.supervisorAcpPush,
     ...(options.supervisor
       ? {
           supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }),
