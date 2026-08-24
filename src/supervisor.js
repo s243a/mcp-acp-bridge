@@ -242,9 +242,14 @@ export function createExternalSupervisor({ timeoutMs = DEFAULT_SUPERVISOR_MS } =
     /**
      * Release the seat — but only if `handle` is the binding that still holds it.
      * A late `unbind` from a binding already replaced is a no-op, so a former
-     * holder's disconnect never unbinds its successor. Called with no handle it
-     * releases unconditionally (the legacy shape, kept for callers that hold at
-     * most one binding at a time).
+     * holder's disconnect never unbinds its successor.
+     *
+     * Pass the handle `bind` returned. The no-handle form releases
+     * *unconditionally* and exists only for a caller that holds at most one
+     * binding and never keeps a stale handle around — a single-shot test, not the
+     * push server, which always passes its handle. Do not mix the two shapes on
+     * one seat: a no-handle `unbind` from a displaced holder would release the
+     * live one, the exact footgun the handle guard closes.
      *
      * @param {number} [handle] the value `bind` returned
      */
