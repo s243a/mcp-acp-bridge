@@ -86,6 +86,36 @@ test("dropping the connection unbinds — decisions fall back to the human", asy
   assert.equal(await supervisor.supervise({ tool: "x", args: {} }), PASS, "unbound on disconnect — the human decides again");
 });
 
+test("a former binder's late disconnect does not unbind its successor", async () => {
+  // The reconnect-wedge: a supervisor's flaky socket reconnects (a fresh bind
+  // displaces the old one), then the old socket finally closes. Its disconnect
+  // must not release the live connection, or supervision wedges closed silently.
+  const supervisor = createExternalSupervisor({ timeoutMs: 5000 });
+  const token = "t";
+  const mk = (review) => {
+    const toServer = new PassThrough();
+    const toClient = new PassThrough();
+    createSupervisorAcpPushServer({ input: toServer, output: toClient, supervisor, token });
+    const client = createPeer({ input: toClient, output: toServer });
+    client.on("supervisor/review", review);
+    return { toServer, client };
+  };
+
+  const a = mk(() => ({ verdict: "reject" })); // the old, soon-to-drop supervisor
+  await a.client.request("initialize", { protocolVersion: 1 });
+  await a.client.request("authenticate", { token });
+
+  const b = mk(() => ({ verdict: "approve" })); // the reconnection that displaces A
+  await b.client.request("initialize", { protocolVersion: 1 });
+  await b.client.request("authenticate", { token });
+  assert.equal(await supervisor.supervise({ tool: "x", args: {} }), APPROVE, "B holds the seat after reconnect");
+
+  a.toServer.end(); // A's stale socket finally closes
+  await tick();
+
+  assert.equal(await supervisor.supervise({ tool: "x", args: {} }), APPROVE, "B still decides — A's late close did not unbind it");
+});
+
 test("a review the agent never answers resolves to PASS on the seam's timeout", async () => {
   // The agent binds but stalls forever; the seam's own timeout must cover it so a
   // silent reviewer never hangs the gate.

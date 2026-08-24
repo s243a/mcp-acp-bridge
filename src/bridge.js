@@ -81,6 +81,15 @@ export async function startBridge(options = {}) {
   // the decider, ahead of a seat or a spawn command.
   const externalSupervisor = options.supervisorAcpPush ? createExternalSupervisor() : null;
   const supervise = externalSupervisor ? externalSupervisor.supervise : seat ? seat.supervise : options.supervisor;
+  // Precedence is push → seat → spawn, and only one decides. Say so out loud when
+  // more than one is configured, rather than silently ignoring the lower ones —
+  // a supervisor client that connects to a displaced seat would otherwise poll an
+  // empty queue forever, looking connected and deciding nothing.
+  if (externalSupervisor && (seat || options.supervisor)) {
+    log("[supervisor] --supervisor-acp-push takes precedence; the seat/spawn supervisor also configured will not be consulted");
+  } else if (seat && options.supervisor) {
+    log("[supervisor] the seat takes precedence; the spawn supervisor also configured will not be consulted");
+  }
   const decideWithReview = supervise
     ? withSupervisor(supervise, human, { log, whenAbsent: options.whenSupervisorAbsent })
     : human;

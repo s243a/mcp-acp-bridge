@@ -39,6 +39,8 @@ import { readVerdict, PASS } from "./supervisor.js";
 export function createSupervisorAcpPushServer({ input, output, supervisor, token, log = () => {}, onError }) {
   const peer = createPeer({ input, output, onError });
   let bound = false;
+  /** @type {number | undefined} the seam handle for this connection's binding */
+  let bindHandle;
 
   peer.on("initialize", async (params) => ({
     protocolVersion: Number.isInteger(params?.protocolVersion)
@@ -66,7 +68,7 @@ export function createSupervisorAcpPushServer({ input, output, supervisor, token
     }
     if (!bound) {
       bound = true;
-      supervisor.bind(review); // this connection is now the decider
+      bindHandle = supervisor.bind(review); // this connection is now the decider
       log("[supervisor] an ACP supervisor bound (push)");
     }
     return {};
@@ -77,7 +79,11 @@ export function createSupervisorAcpPushServer({ input, output, supervisor, token
     if (gone) return;
     gone = true;
     if (bound) {
-      supervisor.unbind(); // decisions fall back to the human; in-flight answers are voided
+      // Release only our own binding: if a reconnect already displaced us, this
+      // handle is stale and `unbind` no-ops, so a late close never unbinds the
+      // connection that took the seat. In-flight answers for a binding still
+      // current are voided by the seam's generation token.
+      supervisor.unbind(bindHandle);
       bound = false;
     }
     log("[supervisor] acp push connection closed; unbound");

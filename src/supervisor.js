@@ -201,6 +201,12 @@ export function createExternalSupervisor({ timeoutMs = DEFAULT_SUPERVISOR_MS } =
   // could approve a call for up to the whole timeout: the seat was released, the
   // authority was not.
   let generation = 0;
+  // The generation of the binding that currently holds the seat. `unbind` checks
+  // a caller's handle against this, so a *former* binder's late disconnect
+  // cannot release the connection that displaced it: without this, a supervisor
+  // whose flaky socket reconnected (a new bind) then saw its old socket finally
+  // close would unbind the live one, wedging supervision closed and silently.
+  let boundGeneration = -1;
 
   const supervise = (call) =>
     new Promise((resolve) => {
@@ -220,14 +226,33 @@ export function createExternalSupervisor({ timeoutMs = DEFAULT_SUPERVISOR_MS } =
 
   return {
     supervise,
-    /** The MCP/ACP surface calls this to become the decider. */
+    /**
+     * The MCP/ACP surface calls this to become the decider. Returns a handle the
+     * caller passes back to `unbind`, so only the connection that currently holds
+     * the seat can release it.
+     *
+     * @returns {number} the handle for this binding
+     */
     bind: (fn) => {
       handler = fn;
       generation += 1;
+      boundGeneration = generation;
+      return boundGeneration;
     },
-    unbind: () => {
+    /**
+     * Release the seat — but only if `handle` is the binding that still holds it.
+     * A late `unbind` from a binding already replaced is a no-op, so a former
+     * holder's disconnect never unbinds its successor. Called with no handle it
+     * releases unconditionally (the legacy shape, kept for callers that hold at
+     * most one binding at a time).
+     *
+     * @param {number} [handle] the value `bind` returned
+     */
+    unbind: (handle) => {
+      if (handle !== undefined && handle !== boundGeneration) return; // superseded — not ours to release
       handler = null;
       generation += 1;
+      boundGeneration = -1;
     },
   };
 }
