@@ -83,6 +83,10 @@ no `tool_call`. That is a visibility gap, not a correctness one — clients that
 checkpoint the workspace (T3 Code diffs it on turn boundaries) still record what
 changed. What is lost is live per-action progress, not the record.
 
+Which agents the bridge can drive, how each finds the MCP endpoint, and how much
+each can be gated (claude fully, codex partially, agy observed-only) is in
+[docs/agents.md](docs/agents.md) — read it before adding an agent.
+
 ## Choosing a mode
 
 Modes differ in what stops for review. Pick by what you are willing to have

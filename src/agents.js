@@ -98,6 +98,67 @@ export const adapters = {
   },
 
   /**
+   * Codex, non-interactively (`codex exec`).
+   *
+   * Unlike agy, codex takes the bridge's MCP endpoint as a config override
+   * (`-c mcp_servers.bridge.url=…`) — the gateway is an HTTP MCP server, exactly
+   * what codex's `[mcp_servers.<name>] url = …` form expects — so no config file
+   * or trusted-project entry is needed for the endpoint. `--json` emits JSONL;
+   * `parseLine` reads the assistant message from it. Tool activity is not parsed
+   * here because the gate lives in the MCP gateway, not in codex's event stream.
+   *
+   * `restrictToMcp` runs codex in a read-only sandbox, so its own shell cannot
+   * mutate the machine — file and exec work is meant to go through the bridge's
+   * gated MCP tools, which run in the bridge process, not codex's sandbox. It
+   * does not *force* codex to prefer those tools the way claude's
+   * `--disallowedTools` does (codex's `enabled_tools`/`disabled_tools` config
+   * would); that is a later refinement. Multi-turn continuity (`resume`) is also
+   * not wired yet — each turn is a fresh `codex exec`, so this is single-turn.
+   */
+  codex: {
+    name: "codex",
+    command: "codex",
+    restrictToMcp: true,
+    buildArgs({ prompt, mcpConfig }) {
+      let url = "";
+      try {
+        url = JSON.parse(mcpConfig)?.mcpServers?.bridge?.url ?? "";
+      } catch {
+        // No usable endpoint; codex still runs, just without the bridge tools.
+      }
+      const args = ["exec", "--json", "--color", "never", "--skip-git-repo-check", "--ephemeral"];
+      if (url) {
+        // `-c` values are parsed as TOML: the url is a quoted string, the flag a bare bool.
+        args.push("-c", `mcp_servers.bridge.url="${url}"`, "-c", "mcp_servers.bridge.enabled=true");
+      }
+      // Read-only sandbox confines codex's own shell; mutations are meant to go
+      // through the bridge's gated MCP tools, which run in the bridge, not here.
+      if (this.restrictToMcp) args.push("-s", "read-only");
+      args.push(prompt);
+      return args;
+    },
+    /** codex --json is JSONL: `agent_message` items are the answer; `turn.completed` ends it. */
+    parseLine(line) {
+      let ev;
+      try {
+        ev = JSON.parse(line);
+      } catch {
+        return null;
+      }
+      if (ev.type === "item.completed" && ev.item?.type === "agent_message") {
+        return { kind: "text", text: ev.item.text ?? "" };
+      }
+      if (ev.type === "turn.completed") return { kind: "result", ok: true, ...(ev.usage ? { usage: ev.usage } : {}) };
+      if (ev.type === "turn.failed" || ev.type === "error") {
+        return { kind: "result", ok: false, text: ev.error?.message ?? ev.message ?? "" };
+      }
+      // thread/turn.started, reasoning, tool items — not client events; the gate
+      // is at the MCP gateway, so codex's own tool stream is not forwarded.
+      return null;
+    },
+  },
+
+  /**
    * Antigravity CLI.
    *
    * Runs in `stream-json` mode, which emits NDJSON covering assistant text,

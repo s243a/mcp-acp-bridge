@@ -162,3 +162,48 @@ test("oversized rules are truncated rather than pushed whole into argv", () => {
   assert.ok(rules.text.length < MAX_RULES_CHARS + 20);
   assert.match(rules.text, /truncated/);
 });
+
+// --- codex adapter (print-mode, MCP endpoint injected as a config override) ---
+
+test("codex is a selectable print-mode adapter", () => {
+  const codex = getAdapter("codex");
+  assert.equal(codex.command, "codex");
+  assert.equal(typeof codex.buildArgs, "function");
+  assert.equal(typeof codex.parseLine, "function");
+});
+
+test("codex buildArgs injects the bridge MCP endpoint from the mcpConfig url", () => {
+  const codex = getAdapter("codex");
+  const mcpConfig = JSON.stringify({ mcpServers: { bridge: { type: "http", url: "http://127.0.0.1:9000/mcp" } } });
+  const args = codex.buildArgs({ prompt: "hi", mcpConfig });
+  assert.deepEqual(args.slice(0, 5), ["exec", "--json", "--color", "never", "--skip-git-repo-check"]);
+  // The HTTP endpoint is a `-c` TOML override, not a config file — codex's form.
+  assert.ok(args.includes('mcp_servers.bridge.url="http://127.0.0.1:9000/mcp"'), "endpoint injected as -c override");
+  assert.ok(args.includes("mcp_servers.bridge.enabled=true"));
+  assert.ok(args.includes("read-only"), "restrictToMcp confines codex's own shell");
+  assert.equal(args[args.length - 1], "hi", "the prompt is the final arg");
+});
+
+test("codex buildArgs still runs with no usable endpoint", () => {
+  const codex = getAdapter("codex");
+  const args = codex.buildArgs({ prompt: "hi", mcpConfig: "not json" });
+  assert.ok(!args.some((a) => a.startsWith("mcp_servers")), "no MCP override without a url");
+  assert.equal(args[args.length - 1], "hi");
+});
+
+test("codex parseLine: agent_message is the answer, turn.completed ends it, noise is null", () => {
+  const codex = getAdapter("codex");
+  // Lines captured from a real `codex exec --json` run.
+  assert.equal(codex.parseLine('{"type":"thread.started","thread_id":"x"}'), null);
+  assert.equal(codex.parseLine('{"type":"turn.started"}'), null);
+  assert.deepEqual(
+    codex.parseLine('{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"PONG"}}'),
+    { kind: "text", text: "PONG" },
+  );
+  assert.deepEqual(codex.parseLine('{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":1}}'), {
+    kind: "result",
+    ok: true,
+    usage: { input_tokens: 5, output_tokens: 1 },
+  });
+  assert.equal(codex.parseLine("not json"), null);
+});
