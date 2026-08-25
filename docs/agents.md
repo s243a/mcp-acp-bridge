@@ -12,6 +12,10 @@ An adapter lives in `src/agents.js`. There are two shapes:
   `claude` and `codex` are here.
 - **Persistent stream-json** — `buildSessionArgs()`/`encodeTurn()`/`parseLine()`
   drive one long-lived process. `agy` is here.
+- **MCP server** (`mcpServer: true`) — the roles invert: the agent *is* the MCP
+  server and the bridge is its client. The turn is delivered as a tool call, and
+  the agent's own approvals come back as MCP elicitations the bridge gates.
+  `codex-mcp` is here (`src/codexMcpSession.js`).
 
 ## The gating spectrum
 
@@ -22,6 +26,7 @@ held for review. How much that holds depends on the harness:
 | --- | --- | --- | --- |
 | `claude` | `--mcp-config <json>` flag | yes — `--disallowedTools Bash,Edit,Write,Read` | **full** |
 | `codex` | `-c mcp_servers.bridge.url=…` | partial — `-s read-only` sandboxes its own shell | **partial** |
+| `codex-mcp` | bridge is codex's MCP *client* | yes — codex asks the bridge to approve each exec/patch | **full (native)** |
 | `agy` | config file only (no flag) | no | **observed, not gated** |
 
 "Observed, not gated" means the bridge sees the agent's tool activity in its event
@@ -63,10 +68,48 @@ limitation:
   refinement.
 
 Also passed: `--skip-git-repo-check` (the bridge workspace is not a git repo),
-`--ephemeral` (the bridge owns session lifecycle). **Not yet wired:** multi-turn
-continuity (`resume`) — each turn is a fresh `codex exec`, so codex is single-turn
-through the bridge for now. Verified end to end: an ACP prompt round-trips and
-codex answers.
+`--ephemeral` (the bridge owns session lifecycle). This adapter is **single-turn**
+(each turn is a fresh `codex exec`) and only partially gated. For multi-turn *and*
+a real gate, use `codex-mcp` below; keep this one as the simple, dependency-free
+fallback.
+
+## codex-mcp
+
+`codex mcp-server`, driven the other way round: codex is the MCP server, the
+bridge is its client. This is the best codex integration — everything the `exec`
+adapter cannot do, it does:
+
+- **The turn goes over MCP.** The bridge calls codex's `codex` tool with the
+  prompt (first turn) and `codex-reply` with `{threadId, prompt}` after that. Not
+  argv, not stdin — a real tool call.
+- **Live multi-turn.** One persistent `codex mcp-server` process holds the
+  conversation; `codex-reply` continues the same `threadId` in memory, so a
+  second turn recalls the first without paying startup again (measured ~3.5s vs
+  ~13s for the first). Tracked per ACP session.
+- **A native gate.** With `approval-policy: untrusted` + `sandbox:
+  workspace-write`, codex asks *the bridge* before running any non-trivial
+  command or applying a patch — as an MCP `elicitation/create` request carrying
+  the exact `codex_command` (e.g. `/bin/bash -lc 'printf %s … > codeword.txt'`)
+  and the cwd. The bridge routes that to the same `gate()` every other tool call
+  goes through, so it becomes an ordinary `session/request_permission` card. This
+  is a gate on codex's *real* actions with the command text in hand — strictly
+  more than the `exec` adapter's `-s read-only`, and the same philosophy as
+  `agy-dual-gated`, but built into codex.
+
+Two wire details that are easy to get wrong (learned the hard way):
+
+- **Approval needs a top-level `decision`, not just MCP's `action`.** The accept
+  reply is `{action: "accept", decision: "approved"}`; `{action: "accept"}` alone
+  leaves the command *rejected*. Deny is `{action: "decline", decision:
+  "denied"}`.
+- **stdio only.** `codex mcp-server` has no HTTP listener, so the bridge speaks
+  to it over a local stdio pipe. That is fine for remoting: the pipe is
+  co-located with codex, and only ACP crosses the fabric — codex's stdin/stdout
+  never does. (No byte-relaying; see the network-trust notes in peerhailer.)
+
+The message streams back as `codex/event` `agent_message_content_delta` events
+(`msg.delta`); the final `tools/call` result carries `structuredContent.{threadId,
+content}` as the whole answer, used as a fallback when a build does not stream.
 
 ## agy (Antigravity — the harness for gemini)
 

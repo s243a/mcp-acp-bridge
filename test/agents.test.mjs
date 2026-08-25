@@ -172,6 +172,14 @@ test("codex is a selectable print-mode adapter", () => {
   assert.equal(typeof codex.parseLine, "function");
 });
 
+test("codex-mcp is a selectable mcp-server adapter (bridge is codex's MCP client)", () => {
+  const cx = getAdapter("codex-mcp");
+  assert.equal(cx.command, "codex");
+  assert.equal(cx.mcpServer, true);
+  assert.equal(cx.sandbox, "workspace-write");
+  assert.equal(cx.approvalPolicy, "untrusted");
+});
+
 test("codex buildArgs injects the bridge MCP endpoint from the mcpConfig url", () => {
   const codex = getAdapter("codex");
   const mcpConfig = JSON.stringify({ mcpServers: { bridge: { type: "http", url: "http://127.0.0.1:9000/mcp" } } });

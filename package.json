@@ -14,7 +14,8 @@
     "test:agy:multi": "node test/live-agy-multiturn.mjs",
     "test:agy:mcp": "node test/live-agy-mcp.mjs",
     "test:agy:cancel": "node test/live-agy-cancel.mjs",
-    "test:agy:dual": "node test/live-agy-dual.mjs"
+    "test:agy:dual": "node test/live-agy-dual.mjs",
+    "test:codex-mcp": "node test/live-codex-mcp.mjs"
   },
   "repository": {
     "type": "git",

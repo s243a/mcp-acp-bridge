@@ -157,6 +157,18 @@ export const adapters = {
       return null;
     },
   },
+  // codex driven through its own MCP server: turn-over-MCP, live multi-turn via
+  // codex-reply, and a native gate — codex asks the bridge to approve its shell
+  // and patches, so the command text is reviewable, not just `-s read-only`.
+  // `untrusted` makes codex ask before running anything non-trivial;
+  // `workspace-write` lets approved commands actually write.
+  "codex-mcp": {
+    name: "codex-mcp",
+    command: "codex",
+    mcpServer: true,
+    sandbox: "workspace-write",
+    approvalPolicy: "untrusted",
+  },
 
   /**
    * Antigravity CLI.

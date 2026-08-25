@@ -14,6 +14,7 @@ import { createAcpServer } from "./acpServer.js";
 import { createGateway } from "./mcpGateway.js";
 import { createAgentSession } from "./agentSession.js";
 import { createPtySession } from "./ptySession.js";
+import { createCodexMcpSession } from "./codexMcpSession.js";
 import { createExecTools } from "./execTools.js";
 import { createFileTools } from "./fileTools.js";
 import { createTaskChannel } from "./taskChannel.js";
@@ -453,6 +454,35 @@ export async function startBridge(options = {}) {
           log,
         });
         const outcome = await runtime.agent.prompt(prompt, { signal });
+        runtime.started = true;
+        return { stopReason: "end_turn", text: outcome.text };
+      }
+
+      // codex mcp-server: the bridge is codex's MCP client. The turn is a
+      // `codex`/`codex-reply` tool call, the message streams back as events, and
+      // codex's own exec/patch approvals arrive as elicitations routed to the
+      // same gate every other tool call goes through.
+      if (adapter.mcpServer) {
+        runtime.agent ??= createCodexMcpSession({
+          cwd: runtime.cwd ?? cwd,
+          ...(runtime.home ? { env: { HOME: runtime.home.dir } } : {}),
+          ...(adapter.sandbox ? { sandbox: adapter.sandbox } : {}),
+          ...(adapter.approvalPolicy ? { approvalPolicy: adapter.approvalPolicy } : {}),
+          onElicit: async (params) => {
+            const message = params?.message ?? "";
+            const isPatch =
+              params?.codex_elicitation === "patch-approval" ||
+              /apply .*code changes/i.test(message);
+            const decision = await gate({
+              sessionId,
+              tool: isPatch ? "codex_apply_patch" : "codex_exec",
+              args: { detail: message },
+            });
+            return decision?.allow === true;
+          },
+          log,
+        });
+        const outcome = await runtime.agent.prompt(prompt, { signal, onText: emitText });
         runtime.started = true;
         return { stopReason: "end_turn", text: outcome.text };
       }
