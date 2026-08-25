@@ -115,7 +115,15 @@ export function createTcpBridge(options = {}) {
         session.bridge = bridge;
         if (session.ended) bridge?.close?.();
       },
-      (error) => log(`[tcp] a session failed to start: ${error instanceof Error ? error.message : error}`),
+      (error) => {
+        // A startup failure (a bad agent, a workspace that will not prepare) used
+        // to be logged and the socket left open, so the client hung with no reply.
+        // Close it, so the failure reaches the client as a closed connection
+        // rather than silence.
+        log(`[tcp] a session failed to start: ${error instanceof Error ? error.message : error}`);
+        session.ended = true;
+        socket.destroy();
+      },
     );
 
     // Teardown never awaits startup — that is what turned the previous fix for

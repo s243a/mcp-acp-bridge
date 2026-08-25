@@ -15,6 +15,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import { startBridge } from "../src/bridge.js";
+import { getAdapter } from "../src/agents.js";
 import { createSpawnSupervisor } from "../src/supervisor.js";
 
 const TRANSPORT_WORDS = new Set(["acp", "agent", "stdio"]);
@@ -177,10 +178,17 @@ const log = (message) => process.stderr.write(`${message}\n`);
 if (Number.isFinite(options.listen)) {
   const { createTcpBridge } = await import("../src/tcpBridge.js");
   const host = options.listenHost ?? "127.0.0.1";
+  const agentName = options.agent ?? process.env.BRIDGE_AGENT ?? "claude";
+  // Validate the agent *before* binding a port. In listen mode the adapter is
+  // otherwise resolved per connection, so an unknown `--agent` would listen
+  // happily and then fail silently on the first connection (logged to stderr,
+  // the socket left hanging). Fail loud, at startup, with the list of known
+  // agents — `--agent gemini`/`codex` are not adapters (gemini runs via `agy`).
+  getAdapter(agentName);
   const tcp = createTcpBridge({
     host,
     port: options.listen,
-    agent: options.agent ?? process.env.BRIDGE_AGENT ?? "claude",
+    agent: agentName,
     cwd: options.cwd ?? process.cwd(),
     policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),
     // A supervisor here supervises every per-connection bridge. Without this a
