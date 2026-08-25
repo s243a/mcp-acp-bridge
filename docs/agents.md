@@ -204,27 +204,17 @@ the SQLite store at rest (this tool) is local file inspection, not "accessing th
 Service", so it sits on the safe side of that line — but the driving path does
 not, and that is worth a deliberate decision rather than a default.
 
-### Status: not implemented, and deliberately deferred
+### Status: not implemented, and deferred
 
 Remote-driving agy (its cloud mesh) and adopting a full ACP adapter for it (e.g.
-antigravity-acp) are **not implemented**, on purpose:
-
-- **Nothing neutral to carry.** agy's remote mode is cloud/account-gated (above),
-  so there is no local protocol to tunnel over peerhailer — no integration to
-  build, unlike codex's app-server.
-- **The driving path carries account risk.** Driving agy through a third-party
-  tool — the bridge's `--agent agy` path, or an adapter like antigravity-acp — is
-  the ToS pattern that can get an Antigravity account suspended.
-- **We do not need it.** The gated-driving job is already covered by `codex-mcp`
-  and `claude` over the fabric, which carry no such risk. The read-only
-  `agy-conversations` view stays (local inspection, safe side of the line).
-
-Revisit only on a deliberate decision. The maintainer's current call (2026-08-25):
-the termination *scope* is unclear enough — Google spans many services — and the
-model-quality upside small enough today that it is not worth it now; plenty of
-alternative providers exist. That may change as Google's models improve, at which
-point antigravity-acp's `src/gen/steps.ts` is the drop-in for real decoding and
-the ACP-adapter path is the more complete way in.
+antigravity-acp) are **not implemented** — the current MCP approach (`codex-mcp`,
+`claude`) is sufficient for now. Two facts to keep in mind if it is revisited:
+agy's remote mode is cloud/account-gated, so there is no local protocol to tunnel
+over peerhailer; and driving agy through a third-party tool (the `--agent agy`
+path, or antigravity-acp) is a ToS pattern that can get an Antigravity account
+suspended. The read-only `agy-conversations` view stays (local inspection, safe
+side of that line). If revisited, antigravity-acp's `src/gen/steps.ts` is the
+drop-in for real protobuf decoding.
 
 ## ACP-native: the passthrough, and when to prefer it
 
