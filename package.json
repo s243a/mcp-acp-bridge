@@ -37,6 +37,7 @@
   },
   "bin": {
     "mcp-acp-bridge": "bin/bridge.js",
-    "acp-passthrough": "bin/acp-passthrough.js"
+    "acp-passthrough": "bin/acp-passthrough.js",
+    "appserver-hub": "bin/appserver-hub.js"
   }
 }
