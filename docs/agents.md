@@ -96,6 +96,19 @@ adapter cannot do, it does:
   more than the `exec` adapter's `-s read-only`, and the same philosophy as
   `agy-dual-gated`, but built into codex.
 
+**Gating is configurable — codex has an auto mode too.** The default is
+`untrusted` (a card for every command). Two flags tune it, the equivalent of
+choosing Claude's review vs auto:
+
+| `--codex-approval` | `--codex-sandbox` | behaviour |
+| --- | --- | --- |
+| `untrusted` (default) | `workspace-write` | every non-trivial command is a card |
+| `on-request` | `workspace-write` | codex asks only when it wants to escalate |
+| `never` | `workspace-write` / `danger-full-access` | **auto mode** — codex runs unattended, no cards, the bridge still owns the session |
+
+Verified both ways live: `untrusted` raises the command cards; `never` runs the
+same task with zero cards and still keeps multi-turn.
+
 Two wire details that are easy to get wrong (learned the hard way):
 
 - **Approval needs a top-level `decision`, not just MCP's `action`.** The accept

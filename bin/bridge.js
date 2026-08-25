@@ -7,7 +7,7 @@
  * another agent binary in a client that hardcodes those arguments, which is how
  * we drive T3 Code without first writing a T3 provider driver.
  *
- *   mcp-acp-bridge [--agent <name>] [--cwd <dir>] [--timeout-ms <n>]
+ *   mcp-acp-bridge [--agent <name>] [--cwd <dir>] [--timeout-ms <n>] [--codex-approval untrusted|on-request|never] [--codex-sandbox ...]
  *                  [--policy <preset|file.json>] [--skip-agent-permissions]
  *
  * Presets: review-everything (default), review-consequential, allow-all.
@@ -113,6 +113,27 @@ function parseArgs(argv) {
         // only review. Explicit because it leaves built-in tools unsupervised.
         options.skipAgentPermissions = true;
         break;
+      case "--codex-approval": {
+        // codex-mcp only: untrusted (gate every command), on-request (codex asks
+        // only to escalate), or never (codex's auto mode — runs unattended, no
+        // cards). The equivalent of choosing Claude's auto vs review.
+        const v = argv[++i];
+        if (!["untrusted", "on-request", "never"].includes(v)) {
+          process.stderr.write(`mcp-acp-bridge: --codex-approval must be untrusted|on-request|never\n`);
+          process.exit(2);
+        }
+        options.codexApprovalPolicy = v;
+        break;
+      }
+      case "--codex-sandbox": {
+        const v = argv[++i];
+        if (!["read-only", "workspace-write", "danger-full-access"].includes(v)) {
+          process.stderr.write(`mcp-acp-bridge: --codex-sandbox must be read-only|workspace-write|danger-full-access\n`);
+          process.exit(2);
+        }
+        options.codexSandbox = v;
+        break;
+      }
       case "-e":
       case "--api-endpoint":
         ++i; // accepted and ignored, for binaries whose clients pass one
@@ -190,6 +211,8 @@ if (Number.isFinite(options.listen)) {
     port: options.listen,
     agent: agentName,
     cwd: options.cwd ?? process.cwd(),
+    codexApprovalPolicy: options.codexApprovalPolicy,
+    codexSandbox: options.codexSandbox,
     policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),
     // A supervisor here supervises every per-connection bridge. Without this a
     // `--listen` bridge silently ignored `--supervisor` — the exact deployment
@@ -228,6 +251,8 @@ try {
         }
       : {}),
     cwd: options.cwd ?? process.cwd(),
+    codexApprovalPolicy: options.codexApprovalPolicy,
+    codexSandbox: options.codexSandbox,
     timeoutMs: options.timeoutMs,
       policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),
     workspaceMode: options.workspaceMode ?? process.env.BRIDGE_WORKSPACE_MODE,

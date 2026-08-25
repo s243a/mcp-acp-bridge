@@ -466,8 +466,12 @@ export async function startBridge(options = {}) {
         runtime.agent ??= createCodexMcpSession({
           cwd: runtime.cwd ?? cwd,
           ...(runtime.home ? { env: { HOME: runtime.home.dir } } : {}),
-          ...(adapter.sandbox ? { sandbox: adapter.sandbox } : {}),
-          ...(adapter.approvalPolicy ? { approvalPolicy: adapter.approvalPolicy } : {}),
+          ...(options.codexSandbox ?? adapter.sandbox
+            ? { sandbox: options.codexSandbox ?? adapter.sandbox }
+            : {}),
+          ...(options.codexApprovalPolicy ?? adapter.approvalPolicy
+            ? { approvalPolicy: options.codexApprovalPolicy ?? adapter.approvalPolicy }
+            : {}),
           onElicit: async (params) => {
             const message = params?.message ?? "";
             const isPatch =

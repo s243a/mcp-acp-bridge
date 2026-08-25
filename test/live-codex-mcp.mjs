@@ -17,9 +17,11 @@ const workspace = mkdtempSync(join(tmpdir(), "codex-mcp-"));
 const toBridge = new PassThrough();
 const toClient = new PassThrough();
 
+const approval = process.env.CODEX_APPROVAL;   // untrusted (default) | on-request | never
 const bridge = await startBridge({
   agent: "codex-mcp",
   cwd: workspace,
+  ...(approval ? { codexApprovalPolicy: approval } : {}),
   input: toBridge,
   output: toClient,
   log: (m) => console.log(m),
@@ -72,9 +74,16 @@ console.log(`codeword.txt: ${wrote}`);
 console.log(`turn 2 recall: ${second.text}`);
 
 let ok = true;
-if (permissions.length === 0) { console.error("FAIL: no permission surfaced — codex's shell was not gated"); ok = false; }
-if (!/platypus/i.test(wrote)) { console.error("FAIL: the allowed command did not run (file not written)"); ok = false; }
+const autoMode = approval === "never";
+if (autoMode) {
+  if (permissions.length !== 0) { console.error(`FAIL: auto mode should raise no cards, saw ${permissions.length}`); ok = false; }
+} else {
+  if (permissions.length === 0) { console.error("FAIL: no permission surfaced — codex's shell was not gated"); ok = false; }
+}
+if (!/platypus/i.test(wrote)) { console.error("FAIL: the command did not run (file not written)"); ok = false; }
 if (!/platypus/i.test(second.text)) { console.error("FAIL: turn 2 did not recall turn 1 — no multi-turn"); ok = false; }
 if (!ok) process.exit(1);
-console.log("PASS — gate fired with the command, allow ran it, multi-turn recalled it");
+console.log(autoMode
+  ? "PASS — auto mode: no cards, command ran unattended, multi-turn recalled it"
+  : "PASS — gate fired with the command, allow ran it, multi-turn recalled it");
 process.exit(0);
