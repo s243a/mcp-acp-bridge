@@ -149,6 +149,45 @@ would be an unknown agent and now fails at startup). agy is the hardest to gate:
 This is why gemini "accepted the connection but never answered" until run as agy
 in an approved workspace.
 
+## Seeing what agy discussed (and its "remote mode")
+
+agy has no clean local protocol to enumerate its work the way codex's app-server
+does — investigated 2026-08-25 on agy 1.1.17. What it has instead:
+
+- **A per-instance local control server** on a random loopback port (`/healthz`
+  → `{instanceId,status}`), which mostly proxies the Antigravity **cloud** backend
+  (`/v1internal:generateChat`, `:fetchUserInfo`, …) and hosts a **remote** entry
+  (`/remote/<host>:4901/task/…`). Its "remote mode" is a **mesh**: instances
+  connect to each other (`connectInstance`, `initiateMeshSession`) and drive a
+  remote agy on **port 4901**, named by `config.json`'s `remoteControlHostname`.
+  That is Antigravity's own remote-agent system — account/cloud-gated and
+  device-addressed — not a neutral API to tunnel. (On WSL/Linux the `antigravity`
+  IDE binary is a stub that defers to the Windows install, so its VS Code-style
+  tunnel is Windows-only.)
+- **An on-disk conversation store** — this is the tractable visibility path. Every
+  conversation is a SQLite db at `~/.gemini/antigravity-cli/conversations/<id>.db`,
+  indexed by `conversation_summaries.db` (id, title, preview, step_count, status,
+  agent_name, **battle_id/winning_conversation_id** — agy runs competing
+  "battles" — timing, killed, not_fully_idle). Each conversation's `steps` table
+  holds `step_type/status` plus **protobuf** blobs (`step_payload/render_info/
+  task_details`).
+
+`bin/agy-conversations.js` reads this **read-only** (the live agy is writing it)
+and can serve it over HTTP so a peerhailer tunnel carries it — the same remote
+visibility we proved for codex:
+
+```sh
+agy-conversations                 # JSON list (newest first)
+agy-conversations read <id> --text  # a conversation's steps, with a text peek
+agy-conversations --serve 9220      # GET /conversations , /conversations/<id>?text=1
+```
+
+Step content is protobuf, but text fields survive as readable byte runs, so
+`--text` recovers the gist — user messages (`type 14`), tool calls (`type 8`,
+e.g. `view_file {"AbsolutePath":…}`) — without the schema. Clean decoding waits on
+agy's proto definitions. Step-type integers seen so far: 8 tool call, 14 user
+message, 15/23 session metadata.
+
 ## ACP-native: the passthrough, and when to prefer it
 
 The bridge exists because some agents do not speak ACP (agy is the motivating
