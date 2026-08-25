@@ -251,15 +251,25 @@ Two honest options for reaching codex remotely, and they are not the same tool:
   **Live mid-turn steer works too** (`npm run test:codex-steer`): two connections
   over the tunnel share one `codex app-server` via `bin/appserver-hub.js`, and a
   steerer that never started the turn pulls the live thread/turn off the
-  broadcast stream and `turn/steer`s it — the worker's output changes course. The
-  hub exists because codex's *managed* daemon (which would multiplex the
-  app-server itself) needs the standalone installer **and** an undocumented
-  socket handshake: an isolated `CODEX_HOME` clears the "app server is running but
-  is not managed" conflict and `enable-remote-control` succeeds, but the control
-  socket still closes on an app-server message even via codex's own
-  `app-server proxy`. The hub — one app-server, N clients, id-remapped requests,
-  broadcast notifications — is the small stand-in, and works over any codex
-  install.
+  broadcast stream and `turn/steer`s it — the worker's output changes course. The hub is the
+  zero-dependency option — one app-server, N clients, id-remapped requests,
+  broadcast notifications — and works with any codex install.
+
+  **The managed daemon works too, once you speak its protocol.** Its control
+  socket is not raw JSON-RPC: it is **JSON-RPC over a WebSocket carried on the
+  unix socket** (`client_async("ws://localhost/")` in codex's `app-server-daemon`
+  crate; messages are WebSocket text frames). That is why `codex app-server
+  proxy` fails for a JSON-RPC client — it relays raw bytes and never sends the
+  upgrade — and why a raw write gets a clean close. Auth (`--ws-auth`) is enforced
+  only on *non-loopback* listeners, so the local unix socket needs no token.
+  `bin/appserver-ws-bridge.js` does the upgrade and exposes the daemon as a plain
+  newline-JSON-RPC TCP port; through it the daemon natively shares thread
+  visibility (`thread/loaded/list` shows another connection's live thread) and a
+  steerer can `thread/read` the active turn and `turn/steer` it — verified. Two
+  notes: an isolated `CODEX_HOME` (under `$HOME`, not `/tmp`) is what clears the
+  "app server is running but is not managed" conflict; and `turn/steer` *queues* —
+  codex finishes its current work, then applies the steer, rather than
+  interrupting.
 - **codex remote-control.** Codex's own pairing-based remote, but a second
   transport to run and trust, and gated on the standalone install. Useful to know
   it exists; not a fit for a peerhailer-centric setup.
