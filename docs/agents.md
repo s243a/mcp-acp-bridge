@@ -183,10 +183,26 @@ agy-conversations --serve 9220      # GET /conversations , /conversations/<id>?t
 ```
 
 Step content is protobuf, but text fields survive as readable byte runs, so
-`--text` recovers the gist — user messages (`type 14`), tool calls (`type 8`,
-e.g. `view_file {"AbsolutePath":…}`) — without the schema. Clean decoding waits on
-agy's proto definitions. Step-type integers seen so far: 8 tool call, 14 user
-message, 15/23 session metadata.
+`--text` recovers the gist without the schema. The step_type/status integers are
+mapped from the reverse-engineered schema in **shubzkothekar/antigravity-acp**
+(MIT) — which also has the real `@bufbuild/protobuf` decoder if you want full
+content, not a heuristic:
+
+| step_type | | step_type | | status | |
+| ---: | --- | ---: | --- | ---: | --- |
+| 5 | write_file | 21 | run_command | 2 | in_progress |
+| 7 | grep_search | 31 | read_url | 3 | completed |
+| 8 | view_file | 33 | search_web | 6 | cancelled |
+| 9 | list_dir | 127 | invoke_subagent | 7 | failed |
+| 14 | user_prompt | 138 | ask_question | | |
+| 15 | agent_text | 90/98/101 | lifecycle | | |
+
+**A Terms-of-Service caveat, surfaced by antigravity-acp:** Google's Antigravity
+ToS names using a third-party tool to *drive* `agy` as a violation that can get an
+account suspended — which is what the bridge's `--agent agy` support does. Reading
+the SQLite store at rest (this tool) is local file inspection, not "accessing the
+Service", so it sits on the safe side of that line — but the driving path does
+not, and that is worth a deliberate decision rather than a default.
 
 ## ACP-native: the passthrough, and when to prefer it
 

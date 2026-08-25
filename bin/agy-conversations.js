@@ -12,7 +12,14 @@
  * Read-only, always: the live agy is writing these files; we open readOnly and
  * never touch them. Step *content* is protobuf (step_payload/render_info), so
  * this surfaces metadata — ids, titles, status, step counts/types, timing,
- * battles — not decoded prose. Decoding waits on the proto schema.
+ * battles — plus a printable-string peek (`--text`). For real protobuf decoding
+ * of the payloads, see the community project shubzkothekar/antigravity-acp (MIT),
+ * which reconstructs the schema with @bufbuild/protobuf.
+ *
+ * Reading these files at rest is read-only local inspection. Note that *driving*
+ * agy with a non-Google tool is, per Google's Antigravity Terms of Service, a
+ * violation that risks account suspension; that risk is about accessing the
+ * Service, not about reading local SQLite the CLI already wrote.
  *
  *   agy-conversations                     # JSON list of conversations
  *   agy-conversations read <id>           # one conversation's step metadata
@@ -99,7 +106,9 @@ function readConversation(id, { text = false } = {}) {
       steps: steps.map((s) => ({
         idx: s.idx,
         type: s.step_type,
+        typeName: STEP_TYPE_NAMES[s.step_type] ?? null,
         status: s.status,
+        statusName: STATUS_NAMES[s.status] ?? null,
         subtrajectory: !!s.has_subtrajectory,
         bytes: { payload: s.payload_bytes ?? 0, render: s.render_bytes ?? 0, task: s.task_bytes ?? 0 },
         ...(text
@@ -111,6 +120,27 @@ function readConversation(id, { text = false } = {}) {
     db.close();
   }
 }
+
+// step_type / status integers, mapped from the reverse-engineered schema in the
+// community project shubzkothekar/antigravity-acp (MIT). Content decoding proper
+// lives there (@bufbuild/protobuf); this file stays zero-dependency and labels.
+const STEP_TYPE_NAMES = {
+  5: "write_file",
+  7: "grep_search",
+  8: "view_file",
+  9: "list_dir",
+  14: "user_prompt",
+  15: "agent_text",
+  21: "run_command",
+  31: "read_url",
+  33: "search_web",
+  90: "lifecycle",
+  98: "lifecycle",
+  101: "lifecycle",
+  127: "invoke_subagent",
+  138: "ask_question",
+};
+const STATUS_NAMES = { 2: "in_progress", 3: "completed", 6: "cancelled", 7: "failed" };
 
 /**
  * A printable-string peek at a protobuf blob. agy's step payloads are protobuf,
