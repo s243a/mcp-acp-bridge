@@ -16,7 +16,28 @@
  * tool calls the agent makes through the bridge stay structured and gateable
  * even here.
  */
-import pty from "node-pty";
+import { createRequire } from "node:module";
+
+// node-pty is a native module (needs a C++ toolchain to build) and *only* the
+// PTY agents need it — claude, codex, and gemini do not. Load it lazily, so the
+// bridge runs those on a machine where node-pty is absent or could not compile
+// (a Puppy Linux box, say), and only a PTY agent trips, with a clear message.
+const requirePty = createRequire(import.meta.url);
+/** @type {any} */
+let ptyModule;
+function pty() {
+  if (ptyModule) return ptyModule;
+  try {
+    ptyModule = requirePty("node-pty");
+  } catch (error) {
+    throw new Error(
+      "this agent needs a PTY, which needs the optional 'node-pty' native module — install it " +
+        "(requires a C++ toolchain), or use a non-PTY agent (claude, codex, gemini). " +
+        `(${error instanceof Error ? error.message : error})`,
+    );
+  }
+  return ptyModule;
+}
 
 /** agy's status line is an explicit state machine; far better than guessing at idle. */
 const WORKING_MARKER = "esc to cancel";
@@ -216,7 +237,7 @@ export function createPtySession({
   function start() {
     if (child) return;
     log(`[pty] starting ${command}`);
-    child = pty.spawn(command, args, {
+    child = pty().spawn(command, args, {
       name: "xterm-256color",
       cols: 120,
       rows: 40,
