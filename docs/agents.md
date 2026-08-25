@@ -188,6 +188,66 @@ authenticate themselves — `codex-acp` uses codex's login, but `claude-code-acp
 `session/new` fails with "Query closed before response received" even though the
 `claude` CLI the bridge uses is authed.
 
+## codex app-server and remote-control (the richer surface)
+
+`codex exec` (our `codex` adapter) and `codex mcp-server` (our `codex-mcp`) are
+the narrow surfaces. Codex's *full* local control protocol is **`app-server`** —
+JSON-RPC codex speaks over stdio (`codex app-server`) or through a managed daemon
+on a unix socket (`codex app-server proxy --sock`). `@zed-industries/codex-acp`
+wraps it; that is what our ACP-native path runs. Its schema
+(`codex app-server generate-json-schema --out DIR`) is worth reading — it is much
+larger than mcp-server's two tools:
+
+- **Threads (sessions):** `thread/list`, `thread/loaded/list`, `thread/read`,
+  `thread/resume`, `thread/fork`, `thread/rollback`, `thread/start`,
+  `thread/archive`, `thread/goal/*`, `thread/name/set`, `thread/compact/start`.
+- **Turns:** `turn/start`, **`turn/steer`** (inject guidance into a running
+  turn), `turn/interrupt`.
+- **Interactive command exec:** `command/exec`, `command/exec/write` (stdin),
+  `command/exec/resize` (it is a PTY), `command/exec/terminate`, with
+  `item/commandExecution/outputDelta` notifications streaming output live.
+- **Everything else:** `fs/*`, `account/*` (login flows), `config/*`,
+  `mcpServer/*`, `plugin`/`skill`/`hooks` lists, permission profiles, and a full
+  notification stream (`item/agentMessage/delta`, `item/reasoning/*`,
+  `item/fileChange/*`, turn and thread lifecycle).
+
+### Visibility into an existing session — demonstrated
+
+This is the part worth calling out. A fresh client that connects and calls
+`thread/list` gets the machine's **existing codex sessions back, with previews**;
+`thread/loaded/list` gives the ones currently live in memory; `thread/resume` +
+`thread/read` attach to one, and the notification stream then lets the client
+*watch* it, `turn/steer` nudge it, and `command/exec/*` drive its shell. So
+app-server is an observability-and-steering surface over codex's own sessions,
+not merely another way in — codex's native answer to "see and take over the
+agent that is already running", the same itch peerhailer's shell plugin scratches
+for a raw shell.
+
+### remote-control, and the deployment caveat
+
+`codex remote-control start` runs that app-server daemon with remote access and
+`codex remote-control pair` mints a short-lived pairing code — codex's own
+built-in remote solution, in the same space as peerhailer's tunnel or T3 Connect.
+**But the managed daemon needs codex's standalone installer**
+(`~/.codex/packages/standalone/current/codex`); an npm/Homebrew codex fails
+`daemon start` with "managed standalone Codex install not found", and so cannot
+run `remote-control` either. The plain stdio `codex app-server` still works
+without it (single client, no pairing) — which is why our codex-acp path runs
+even though the daemon does not.
+
+### How this bears on the project
+
+Two honest options for reaching codex remotely, and they are not the same tool:
+
+- **peerhailer tunnel + stdio app-server (or codex-acp over the passthrough).**
+  One fabric, one auth model, works with any codex install. To get the
+  visibility surface, tunnel `codex app-server` and let the client call
+  `thread/list`/`resume`/`steer` — richer than our per-turn bridge, and a real
+  future direction.
+- **codex remote-control.** Codex's own pairing-based remote, but a second
+  transport to run and trust, and gated on the standalone install. Useful to know
+  it exists; not a fit for a peerhailer-centric setup.
+
 ## Adding an agent — the checklist the above implies
 
 1. **How does it take a prompt non-interactively?** (`-p`, `exec`, a stream on
