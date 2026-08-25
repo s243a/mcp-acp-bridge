@@ -1,6 +1,15 @@
 # The ACP relay
 
-**Status: designed, not built.** Supersedes the "stdio shim" sketched in
+**Status: the tunnel destination works today; the unified router is designed.**
+The **tunnel** destination below is built and proven — peerhailer's
+`hail tunnel <peer> <name> pipe` is exactly "open a peerhailer tunnel to a peer's
+`--listen`, pipe ACP through it," and pointing T3's ACP `command` at it drives a
+remote `bridge --listen` end to end (an ACP `initialize` round-trips over pinned
+mutual TLS). The **listen** far end (`bridge --listen`) and **local** (spawning
+the bridge) are built too. What is *designed, not built* is folding all three into
+one component that picks the destination by a named route — today you point T3 at
+`hail tunnel … pipe` for remote or at the bridge directly for local, rather than
+at a single router that decides. Supersedes the "stdio shim" sketched in
 `design.md` — the shim was a special case of this.
 
 ## What it is
@@ -24,7 +33,7 @@ T3  ──stdio──▶  relay  ──▶  { local | tunnel | listen }
 | Destination | What the relay does | Status |
 | --- | --- | --- |
 | **local** | spawn the bridge as a subprocess, pipe stdio to it | this is today's behaviour, unchanged |
-| **tunnel** | open a peerhailer tunnel to a peer's `--listen`, pipe ACP through it | the new near end |
+| **tunnel** | open a peerhailer tunnel to a peer's `--listen`, pipe ACP through it | built: `hail tunnel <peer> <name> pipe` |
 | **listen** | *(the far end)* `bridge --listen <port>` — already built | done |
 
 Local is the degenerate case: a destination that happens to be a child process

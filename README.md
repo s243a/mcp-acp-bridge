@@ -32,6 +32,12 @@ npm run test:bridge   # full chain: ACP client -> bridge -> agent -> approval
 npm run test:bridge deny
 ```
 
+The only native dependency, `node-pty`, is **optional** — it is needed just for
+the PTY agents (`agy-dual`, `agy-dual-gated`). If its build fails (no C++
+toolchain, e.g. on a minimal Linux box), `npm install` keeps going and the bridge
+still runs the non-PTY agents (`claude`, `codex`, `gemini`) — those never load
+it. Only starting a PTY agent without it errors, and says so.
+
 `test:live` needs the `claude` CLI on PATH and authenticated. It hands Claude
 Code a per-session MCP endpoint, asks it to call a tool, and shows the
 interception:
