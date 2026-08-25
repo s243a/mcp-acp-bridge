@@ -240,10 +240,16 @@ even though the daemon does not.
 Two honest options for reaching codex remotely, and they are not the same tool:
 
 - **peerhailer tunnel + stdio app-server (or codex-acp over the passthrough).**
-  One fabric, one auth model, works with any codex install. To get the
-  visibility surface, tunnel `codex app-server` and let the client call
-  `thread/list`/`resume`/`steer` — richer than our per-turn bridge, and a real
-  future direction.
+  One fabric, one auth model, works with any codex install. The visibility
+  surface is real and **prototyped**: tunnel `codex app-server` and a fresh
+  client can `thread/list` the machine's existing codex sessions, `thread/read`
+  their history, and `thread/resume` to continue one — richer than our per-turn
+  bridge. Proven end to end on loopback by peerhailer's
+  `npm run test:codex-appserver` (one connection stores a session; a separate
+  connection over the tunnel lists, reads, resumes, and recalls it). A live
+  *mid-turn* steer of another client's in-flight turn additionally needs codex's
+  managed app-server daemon (the standalone-installer daemon), which is the
+  harder variant.
 - **codex remote-control.** Codex's own pairing-based remote, but a second
   transport to run and trust, and gated on the standalone install. Useful to know
   it exists; not a fit for a peerhailer-centric setup.
