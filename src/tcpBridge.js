@@ -94,6 +94,7 @@ export function createTcpBridge(options = {}) {
       policy: options.policy,
       codexApprovalPolicy: options.codexApprovalPolicy,
       codexSandbox: options.codexSandbox,
+      supervisorTiming: options.supervisorTiming,
       // The supervisor and its absent-policy reach each per-connection bridge —
       // without this, `--supervisor` on a `--listen` bridge was silently
       // dropped, so the deployment shape the service plugin spawns ran every

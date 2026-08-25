@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { startBridge } from "../src/bridge.js";
 import { getAdapter } from "../src/agents.js";
 import { createSpawnSupervisor } from "../src/supervisor.js";
+import { parseTimingProfile } from "../src/supervisorTiming.js";
 
 const TRANSPORT_WORDS = new Set(["acp", "agent", "stdio"]);
 
@@ -104,6 +105,16 @@ function parseArgs(argv) {
         }
         break;
       }
+      case "--supervisor-timing":
+        // Shape the supervisor's response latency to look human: a JSON profile
+        // {min,max,dist,...} clipped to [min,max]. See src/supervisorTiming.js.
+        try {
+          options.supervisorTiming = parseTimingProfile(argv[++i]);
+        } catch (error) {
+          process.stderr.write(`mcp-acp-bridge: --supervisor-timing ${error.message}\n`);
+          process.exit(2);
+        }
+        break;
       case "--policy":
         // A preset name, or a path to a JSON file holding {rules, default}.
         options.policy = argv[++i];
@@ -213,6 +224,7 @@ if (Number.isFinite(options.listen)) {
     cwd: options.cwd ?? process.cwd(),
     codexApprovalPolicy: options.codexApprovalPolicy,
     codexSandbox: options.codexSandbox,
+    supervisorTiming: options.supervisorTiming,
     policy: resolvePolicy(options.policy ?? process.env.BRIDGE_POLICY),
     // A supervisor here supervises every per-connection bridge. Without this a
     // `--listen` bridge silently ignored `--supervisor` — the exact deployment
@@ -244,6 +256,7 @@ try {
     seatSupervisor: options.seatSupervisor,
     supervisorAcp: options.supervisorAcp,
     supervisorAcpPush: options.supervisorAcpPush,
+    supervisorTiming: options.supervisorTiming,
     ...(options.supervisor
       ? {
           supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }),

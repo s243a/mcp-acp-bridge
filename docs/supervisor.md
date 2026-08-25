@@ -234,6 +234,36 @@ inversion has to be closed explicitly or the mode ships a self-approval path:
   bypass, which is failing open one level up. The supervisor decides the
   *supervised* agent's calls and nothing of its own.
 
+## Response timing: making a supervisor human-like
+
+An automated supervisor answers in milliseconds; a person does not. `--supervisor-timing`
+paces a supervisor's verdict so the *observed* response time — from a call being
+held to its verdict applied — follows a distribution **clipped to `[min, max]`**:
+
+```
+bridge --supervisor-mcp --supervisor-timing '{"min":2000,"max":30000,"dist":"gamma","shape":2}'
+```
+
+The profile is JSON: `min`/`max` in milliseconds (the floor and ceiling — "both
+clipped"), and `dist` one of `uniform`, `exponential`, `gamma`, `normal`,
+`lognormal`, `poisson`, each with optional parameters (`meanMs`, `shape`/`scaleMs`,
+`meanMs`/`sdMs`, `mu`/`sigma`, `lambda`/`unitMs`); sensible defaults derive from
+`min`/`max` when parameters are omitted. It applies to whichever supervisor is
+active (spawn, MCP seat, ACP, ACP-push).
+
+Two invariants keep it honest:
+
+- **It only adds latency.** The shaper cannot change a verdict, and it never
+  resolves *sooner* than the underlying supervisor produced one — so a fast
+  approval is held to look considered, but a slow one is not hurried.
+- **A non-answer is not paced.** Abstention (the seat's timeout to `pass`) is not
+  a response, so it is not shaped; it resolves on the seat's own timeout, and the
+  gate's outer timeout still bounds everything. Keep `max` below the gate timeout
+  (120s) so a paced verdict does not race the timeout to a deny.
+
+Implementation: `src/supervisorTiming.js` (`sampleDelay`, `withResponseTiming`,
+`parseTimingProfile`).
+
 ## Composition with everything else
 
 - **After policy, before the human.** Allow and deny never reach it — those are
