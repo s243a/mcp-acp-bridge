@@ -36,6 +36,7 @@
     "node-pty": "^1.1.0"
   },
   "bin": {
-    "mcp-acp-bridge": "bin/bridge.js"
+    "mcp-acp-bridge": "bin/bridge.js",
+    "acp-passthrough": "bin/acp-passthrough.js"
   }
 }

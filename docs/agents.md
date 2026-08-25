@@ -149,13 +149,44 @@ would be an unknown agent and now fails at startup). agy is the hardest to gate:
 This is why gemini "accepted the connection but never answered" until run as agy
 in an approved workspace.
 
-## ACP is also an option (and skips the bridge)
+## ACP-native: the passthrough, and when to prefer it
 
-Both **claude** and **codex** can speak ACP natively. So the bridge is not the
-only way to reach them — a client could point its ACP command straight at their
-ACP mode (tunnelled the same way). The bridge's distinct value is the **gate**;
-where you do not need to hold tool calls, ACP-direct is simpler, and where you do,
-the bridge is the reason to run it.
+The bridge exists because some agents do not speak ACP (agy is the motivating
+case): it translates ACP<->MCP and gates the MCP tool channel. But claude and
+codex each have a real **ACP adapter** — `@zed-industries/claude-code-acp` and
+`@zed-industries/codex-acp` — that already speaks ACP and already surfaces the
+agent's *own* native permissions (every tool, not just MCP ones), with richer
+session capabilities (`loadSession`/`resume`/`fork`). For those, there is nothing
+to translate.
+
+What was missing is only a way to reach a stdio adapter from across the fabric,
+since ACP adapters speak over stdio, not a port. `bin/acp-passthrough.js` is that
+— a dumb byte forwarder that serves any stdio ACP adapter on a loopback TCP port,
+one adapter process per connection, so a peerhailer tunnel can carry it:
+
+```sh
+acp-passthrough --listen 9110 -- npx -y @zed-industries/codex-acp
+acp-passthrough --listen 9111 -- npx -y @zed-industries/claude-code-acp
+```
+
+It has **no gate of its own** — the adapter carries the agent's. Loopback by
+default: what reaches it is the tunnel, and the fabric authenticates.
+
+**Bridge vs passthrough — pick by the agent and the gate you want:**
+
+| | bridge (`--listen --agent X`) | passthrough (native ACP) |
+| --- | --- | --- |
+| works for | any agent, incl. no-ACP (agy) | agents with an ACP adapter (claude, codex) |
+| gate | the bridge's MCP gate (MCP tools only) | the agent's *native* permissions (every tool) |
+| sessions | per the adapter (codex-mcp multi-turn) | native `loadSession`/`resume`/`fork` |
+| translation | ACP<->MCP | none |
+
+Verified: codex-acp driven end to end over a peerhailer tunnel through the
+passthrough (peerhailer `npm run test:acp-native`). **Caveat:** the adapters
+authenticate themselves — `codex-acp` uses codex's login, but `claude-code-acp`
+(Agent SDK) needs its own `claude /login` or `ANTHROPIC_API_KEY`; without it,
+`session/new` fails with "Query closed before response received" even though the
+`claude` CLI the bridge uses is authed.
 
 ## Adding an agent — the checklist the above implies
 
