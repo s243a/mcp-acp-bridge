@@ -177,7 +177,15 @@ export async function startBridge(options = {}) {
     onToolCall: (event) => log(`[tool] ${event.phase} ${event.tool}`),
   });
 
-  const server = await gateway.listen(options.supervisorMcpPort ?? 0);
+  // When a fixed seat port carries an exit token, the gateway fronts the port with
+  // a preamble sniff: the /mcp/supervisor path is refused unless the connection
+  // presented `PHT/1 <token>` (which the tunnel writes). Only meaningful with a
+  // fixed port and a seat, so it is scoped to both.
+  const seatExitToken = options.supervisorMcpPort && options.seatSupervisor ? options.supervisorMcpToken : undefined;
+  const server = await gateway.listen(options.supervisorMcpPort ?? 0, "127.0.0.1", {
+    exitToken: seatExitToken,
+    protectedToken: "supervisor",
+  });
 
   // The supervisor's own MCP session — separate from any agent's, and the only
   // one `isOperator` recognises, so claiming the seat requires holding this path,
@@ -193,6 +201,9 @@ export async function startBridge(options = {}) {
     log(`[supervisor] seat open — connect a supervisor MCP client at ${server.url(supervisorSession.token)}`);
     if (options.supervisorMcpPort) {
       log(`[supervisor] fixed path — its security is the reachability of ${options.supervisorMcpPort} (a tunnel's capability), not the URL`);
+      if (seatExitToken) {
+        log(`[supervisor] exit token required — the seat path refuses any connection that did not arrive through the tunnel`);
+      }
     }
   }
 

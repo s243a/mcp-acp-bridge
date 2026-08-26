@@ -91,6 +91,21 @@ function parseArgs(argv) {
         options.seatSupervisor = true;
         break;
       }
+      case "--supervisor-mcp-token": {
+        // Optional defence in depth for the fixed seat: the peerhailer tunnel is
+        // configured to write `PHT/1 <token>` on connect, and the seat's gateway
+        // refuses the /mcp/supervisor path to any connection that did not present
+        // it. The caller (the supervisor MCP client) never sees the token; it is
+        // operator config on both ends of the tunnel. Implies --supervisor-mcp.
+        const value = argv[++i];
+        if (typeof value !== "string" || value.length === 0) {
+          process.stderr.write("mcp-acp-bridge: --supervisor-mcp-token needs a value\n");
+          process.exit(2);
+        }
+        options.supervisorMcpToken = value;
+        options.seatSupervisor = true;
+        break;
+      }
       case "--supervisor-acp": {
         // The same seat, over ACP, for a supervisor that is itself an agent. The
         // bridge opens a TCP endpoint (an optional port follows, else ephemeral)
@@ -271,6 +286,7 @@ try {
     supervisorAcp: options.supervisorAcp,
     supervisorAcpPush: options.supervisorAcpPush,
     supervisorMcpPort: options.supervisorMcpPort,
+    supervisorMcpToken: options.supervisorMcpToken,
     supervisorTiming: options.supervisorTiming,
     ...(options.supervisor
       ? {
