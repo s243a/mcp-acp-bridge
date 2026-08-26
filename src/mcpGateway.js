@@ -44,8 +44,10 @@ export function createGateway(options = {}) {
   /** token -> session record */
   const sessions = new Map();
 
-  function openSession({ sessionId = randomUUID() } = {}) {
-    const token = randomBytes(24).toString("base64url");
+  function openSession({ sessionId = randomUUID(), token = randomBytes(24).toString("base64url") } = {}) {
+    // A caller may pin the token (hence the URL path) — used to expose the
+    // supervisor seat at a known /mcp/<name> when its port is fixed, so it can be
+    // reached over a capability-gated tunnel without conveying a random secret.
     sessions.set(token, { sessionId, token });
     return { sessionId, token, path: `/mcp/${token}` };
   }

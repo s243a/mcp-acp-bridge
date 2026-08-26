@@ -77,6 +77,20 @@ function parseArgs(argv) {
         // claims the seat and answers pending decisions. See docs/supervisor.md.
         options.seatSupervisor = true;
         break;
+      case "--supervisor-mcp-port": {
+        // Pin the MCP seat to a fixed port and a known path (/mcp/supervisor) so
+        // it can be reached over a tunnel — the credential is then the tunnel
+        // capability, not the URL's secrecy. Implies --supervisor-mcp. One fixed
+        // port ⇒ one supervised worker process.
+        const value = Number(argv[++i]);
+        if (!Number.isInteger(value) || value < 0 || value > 65535) {
+          process.stderr.write("mcp-acp-bridge: --supervisor-mcp-port must be a port number\n");
+          process.exit(2);
+        }
+        options.supervisorMcpPort = value;
+        options.seatSupervisor = true;
+        break;
+      }
       case "--supervisor-acp": {
         // The same seat, over ACP, for a supervisor that is itself an agent. The
         // bridge opens a TCP endpoint (an optional port follows, else ephemeral)
@@ -256,6 +270,7 @@ try {
     seatSupervisor: options.seatSupervisor,
     supervisorAcp: options.supervisorAcp,
     supervisorAcpPush: options.supervisorAcpPush,
+    supervisorMcpPort: options.supervisorMcpPort,
     supervisorTiming: options.supervisorTiming,
     ...(options.supervisor
       ? {

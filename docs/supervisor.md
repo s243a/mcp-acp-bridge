@@ -118,6 +118,23 @@ can hold context across decisions, watch the conversation as it happens, and rea
 backwards from the tail as far as a given question needs. That is the difference
 between a filter and a reviewer.
 
+#### Reaching the seat over a tunnel — `--supervisor-mcp-port`
+
+By default the seat is on an ephemeral loopback port with a random-token path, so
+only something on this machine can reach it. `--supervisor-mcp-port <port>` pins it
+to a fixed port and a **fixed path `/mcp/supervisor`**, so a peerhailer tunnel can
+carry it to a remote supervisor:
+
+```
+node:   acp-passthrough --listen 9102 -- node bin/bridge.js --agent X --supervisor-mcp --supervisor-mcp-port 9103
+caller: hail tunnel <node> mcp-seat forward 9200   # then http://127.0.0.1:9200/mcp/supervisor
+```
+
+The credential is then the **tunnel capability** (only a peer granted the seat's
+`tunnel:` reaches it), not the URL's secrecy — the residual exposure is a process
+on the node's own loopback, which already outranks the seat. Implies
+`--supervisor-mcp`. A fixed port means **one supervised worker process** at a time.
+
 ### 3. ACP — built
 
 The same seat, over ACP, for a supervisor that is itself an agent. Run the bridge
