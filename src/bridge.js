@@ -24,6 +24,7 @@ import { buildInitialPrompt, getAdapter } from "./agents.js";
 import { makeGate } from "./gate.js";
 import { makePolicy, withPolicy } from "./policy.js";
 import { withSupervisor, createExternalSupervisor } from "./supervisor.js";
+import { withResponseTiming } from "./supervisorTiming.js";
 import { createSupervisorSeat } from "./supervisorSeat.js";
 import { createSupervisorAdapter } from "./supervisorAdapter.js";
 import { supervisorTools } from "./supervisorTools.js";
@@ -91,8 +92,15 @@ export async function startBridge(options = {}) {
   } else if (seat && options.supervisor) {
     log("[supervisor] the seat takes precedence; the spawn supervisor also configured will not be consulted");
   }
-  const decideWithReview = supervise
-    ? withSupervisor(supervise, human, { log, whenAbsent: options.whenSupervisorAbsent })
+  // Optionally shape the supervisor's response latency to look human — a floor,
+  // a ceiling, and a clipped distribution between (src/supervisorTiming.js). Adds
+  // latency only; it can never change a verdict.
+  const paced =
+    supervise && options.supervisorTiming
+      ? withResponseTiming(supervise, options.supervisorTiming, { log })
+      : supervise;
+  const decideWithReview = paced
+    ? withSupervisor(paced, human, { log, whenAbsent: options.whenSupervisorAbsent })
     : human;
 
   const gate = makeGate(
