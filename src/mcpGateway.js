@@ -29,6 +29,11 @@ import { TRANSPORT_TOOLS } from "./taskChannel.js";
 
 const SERVER_INFO = { name: "mcp-acp-bridge", version: "0.0.1" };
 
+// How long a sniff-phase socket may stall before the preamble decides it. The
+// HTTP server never sees these sockets, so its header/request timeouts do not
+// apply — this is their only bound.
+const SNIFF_TIMEOUT_MS = 10_000;
+
 /**
  * @param {{
  *   tools?: Array<{name: string, description?: string, inputSchema?: object,
@@ -154,6 +159,9 @@ export function createGateway(options = {}) {
   function listen(port = 0, host = "127.0.0.1", guard = {}) {
     const exitToken = typeof guard.exitToken === "string" && guard.exitToken.length > 0 ? guard.exitToken : null;
     if (exitToken) exitGuard = { token: exitToken, protectedToken: guard.protectedToken };
+    // Overridable only so a test need not wait the full stall window; production
+    // callers leave it at the default.
+    const sniffTimeoutMs = Number.isFinite(guard.sniffTimeoutMs) ? guard.sniffTimeoutMs : SNIFF_TIMEOUT_MS;
     const http = createServer((req, res) => {
       handleRequest(req, res).then(
         (handled) => {
@@ -174,10 +182,14 @@ export function createGateway(options = {}) {
     // marked, and the remaining bytes — the real HTTP request — handed on. A
     // connection with no preamble still reaches HTTP; only the protected path
     // refuses it. The preamble never reaches the HTTP parser.
-    const front = exitToken ? createNetServer((socket) => sniffPreamble(socket, exitToken, http)) : http;
+    const front = exitToken ? createNetServer((socket) => sniffPreamble(socket, exitToken, http, sniffTimeoutMs)) : http;
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      // A fixed seat port can collide (EADDRINUSE); the error now surfaces on the
+      // front listener, so it needs its own handler or it is an uncaught throw.
+      front.once("error", reject);
       front.listen(port, host, () => {
+        front.removeListener("error", reject);
         const { port: boundPort } = front.address();
         resolve({
           port: boundPort,
@@ -208,24 +220,38 @@ export function createGateway(options = {}) {
  * to the HTTP server. A connection whose first bytes are not the preamble is
  * passed straight through — its `phtVerified` stays false, so only the protected
  * path treats it differently. Buffers across TCP segment boundaries; caps the
- * unmatched wait so a silent or oversized opener cannot pin memory.
+ * unmatched wait so a silent or oversized opener cannot pin memory, and caps the
+ * total stall with a socket timeout so a silent opener cannot pin the fd either.
  * @param {import("node:net").Socket} socket
  * @param {string} exitToken
  * @param {import("node:http").Server} http
+ * @param {number} [timeoutMs]
  */
-function sniffPreamble(socket, exitToken, http) {
+function sniffPreamble(socket, exitToken, http, timeoutMs = SNIFF_TIMEOUT_MS) {
   const PREFIX = "PHT/1 ";
   const MAX_LINE = 512;
   let buf = Buffer.alloc(0);
-  const hand = () => http.emit("connection", socket);
+  const onError = () => socket.destroy();
+  // The HTTP server hands these sockets no timeout (it never sees them), so a
+  // peer that connects and stalls — sending nothing, or fewer bytes than the
+  // prefix — would pin the fd forever. Since defeating exactly that kind of
+  // loopback misuse is the point of the guard, the guarded seat must not be
+  // easier to stall than an unguarded HTTP server. Cleared on hand-off.
+  socket.setTimeout(timeoutMs, () => socket.destroy());
+  /** Hand the (now clean) socket to the HTTP server, buffered remainder first. */
+  const hand = (/** @type {Buffer} */ leftover) => {
+    socket.removeListener("data", onData);
+    socket.removeListener("error", onError);
+    socket.setTimeout(0);
+    if (leftover.length) socket.unshift(leftover);
+    http.emit("connection", socket);
+  };
   const onData = (/** @type {Buffer} */ chunk) => {
     buf = Buffer.concat([buf, chunk]);
     // Undecided until we have at least the prefix length.
     if (buf.length < PREFIX.length) return;
     if (buf.subarray(0, PREFIX.length).toString() !== PREFIX) {
-      socket.removeListener("data", onData);
-      socket.unshift(buf);
-      hand();
+      hand(buf);
       return;
     }
     const nl = buf.indexOf(0x0a);
@@ -235,13 +261,10 @@ function sniffPreamble(socket, exitToken, http) {
     }
     const token = buf.subarray(PREFIX.length, nl).toString().trim();
     if (tokensEqual(token, exitToken)) socket.phtVerified = true;
-    socket.removeListener("data", onData);
-    const rest = buf.subarray(nl + 1);
-    if (rest.length) socket.unshift(rest);
-    hand();
+    hand(buf.subarray(nl + 1));
   };
   socket.on("data", onData);
-  socket.on("error", () => socket.destroy());
+  socket.on("error", onError);
 }
 
 /** Constant-time token compare that also guards differing lengths. */

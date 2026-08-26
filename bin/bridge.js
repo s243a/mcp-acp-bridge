@@ -98,8 +98,12 @@ function parseArgs(argv) {
         // it. The caller (the supervisor MCP client) never sees the token; it is
         // operator config on both ends of the tunnel. Implies --supervisor-mcp.
         const value = argv[++i];
-        if (typeof value !== "string" || value.length === 0) {
-          process.stderr.write("mcp-acp-bridge: --supervisor-mcp-token needs a value\n");
+        // Printable ASCII, no whitespace, >= 8 chars: the token crosses to a
+        // peerhailer tunnel that writes it verbatim on one line, so whitespace or
+        // control bytes would make the two ends silently disagree (403 forever),
+        // and a 1-char token is one loopback packet burst from brute force.
+        if (typeof value !== "string" || !/^[\x21-\x7e]{8,}$/.test(value)) {
+          process.stderr.write("mcp-acp-bridge: --supervisor-mcp-token must be >= 8 printable non-space characters\n");
           process.exit(2);
         }
         options.supervisorMcpToken = value;

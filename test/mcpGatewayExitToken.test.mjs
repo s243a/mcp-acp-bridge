@@ -24,7 +24,9 @@ const gateway = createGateway({ tools: [] });
 gateway.openSession({ token: "supervisor" });
 const agent = gateway.openSession();
 
-const server = await gateway.listen(0, "127.0.0.1", { exitToken: TOKEN, protectedToken: "supervisor" });
+// A short sniff timeout so the stall test need not wait the 10s default; legit
+// requests arrive in milliseconds and never trip it.
+const server = await gateway.listen(0, "127.0.0.1", { exitToken: TOKEN, protectedToken: "supervisor", sniffTimeoutMs: 700 });
 after(() => server.close());
 
 /**
@@ -75,6 +77,20 @@ test("the supervisor path passes the guard with the right token", async () => {
 test("an agent session is untouched — no preamble needed", async () => {
   const status = await statusFor(`/mcp/${agent.token}`);
   assert.notEqual(status, 403, "the unprotected path never demands the preamble");
+});
+
+test("a socket that connects and stalls is closed, not pinned (finding 1)", async () => {
+  const closedWithin = await new Promise((resolve) => {
+    const socket = connect(server.port, "127.0.0.1", () => {
+      // Send fewer bytes than the prefix, then nothing — the classic stall.
+      socket.write("PH");
+    });
+    const started = Date.now();
+    socket.on("error", () => {});
+    socket.on("close", () => resolve(Date.now() - started));
+    setTimeout(() => resolve(null), 3000);
+  });
+  assert.ok(closedWithin !== null && closedWithin < 2000, `the stalled socket was closed (in ${closedWithin}ms)`);
 });
 
 test("an unknown session is a 404, not a guard 403", async () => {
