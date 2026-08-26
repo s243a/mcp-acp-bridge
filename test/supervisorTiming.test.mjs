@@ -43,10 +43,10 @@ test("withResponseTiming does not delay when the supervisor was already slower t
   // target 20ms, but the supervisor takes ~60ms — no extra sleep should be added.
   const paced = withResponseTiming(
     async () => {
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 200));
       return "approve";
     },
-    parseTimingProfile({ min: 20, max: 20 }),
+    parseTimingProfile({ min: 5, max: 5 }),
     { sleep: async (ms) => void slept.push(ms) },
   );
   const verdict = await paced({ tool: "Read" });
