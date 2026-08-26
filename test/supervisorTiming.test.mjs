@@ -53,3 +53,14 @@ test("withResponseTiming does not delay when the supervisor was already slower t
   assert.equal(verdict, "approve");
   assert.equal(slept.length, 0, "no pacing sleep when the decision already outlasted the target");
 });
+
+test("parseTimingProfile validates distribution params and caps max (B1/B2)", () => {
+  assert.throws(() => parseTimingProfile({ min: 0, max: 100, dist: "normal", sdMs: "abc" }), /sdMs must be a number/);
+  assert.throws(() => parseTimingProfile({ min: 0, max: 100, dist: "gamma", shape: 0 }), /shape must be a number/);
+  assert.throws(() => parseTimingProfile({ min: 0, max: 100, dist: "poisson", lambda: Infinity }), /lambda must be a number/);
+  assert.throws(() => parseTimingProfile({ min: 0, max: 5_000_000 }), /max must be <=/);
+  // unknown keys are dropped; vetted numbers survive
+  const clean = parseTimingProfile({ min: 10, max: 20, dist: "gamma", shape: 2, bogus: "x" });
+  assert.equal(clean.shape, 2);
+  assert.equal(clean.bogus, undefined);
+});

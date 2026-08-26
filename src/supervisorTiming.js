@@ -11,7 +11,9 @@
  * It only ever *adds* latency to a verdict; it cannot change the verdict, and it
  * cannot make a decision arrive sooner than the underlying supervisor produced
  * one. A supervisor that abstains (times out to `pass`) is not "a response", so a
- * non-answer is not paced — it resolves on the seat's own timeout.
+ * non-answer resolves on the seat's own timeout; if a supervisor fails *fast*
+ * (e.g. a crashed spawn) its quick `pass` is paced like any verdict — harmless,
+ * since a delayed PASS is still a PASS.
  *
  * @module supervisorTiming
  */
@@ -133,6 +135,20 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @param {unknown} raw a JSON string or an object
  * @returns {{ min: number, max: number, dist: string, [k: string]: number|string }}
  */
+export const MAX_DELAY_MS = 300_000;
+
+/** Recognised per-distribution parameters and the range each must sit in. */
+const PARAM_RANGES = {
+  meanMs: { min: 0, max: MAX_DELAY_MS },
+  sdMs: { min: 0, max: MAX_DELAY_MS },
+  scaleMs: { min: 0, max: MAX_DELAY_MS },
+  unitMs: { min: 0, max: MAX_DELAY_MS },
+  shape: { min: 1e-6, max: 1e4 },
+  lambda: { min: 0, max: 1e6 },
+  sigma: { min: 1e-6, max: 100 },
+  mu: { min: -100, max: 100 },
+};
+
 export function parseTimingProfile(raw) {
   const profile = typeof raw === "string" ? JSON.parse(raw) : raw;
   if (!profile || typeof profile !== "object") throw new Error("supervisor timing must be an object");
@@ -141,6 +157,22 @@ export function parseTimingProfile(raw) {
   const dist = profile.dist ?? "uniform";
   if (!Number.isFinite(min) || min < 0) throw new Error("supervisor timing: min must be a non-negative number of ms");
   if (!Number.isFinite(max) || max < min) throw new Error("supervisor timing: max must be >= min");
+  // Cap well below setTimeout's 2^31-1 overflow (which would clamp to 1ms and
+  // break the floor), and below any sane gate timeout — a max beyond it only ever
+  // races the timeout to a (safe) PASS.
+  if (max > MAX_DELAY_MS) throw new Error(`supervisor timing: max must be <= ${MAX_DELAY_MS}ms`);
   if (!DISTRIBUTIONS.includes(dist)) throw new Error(`supervisor timing: dist must be one of ${DISTRIBUTIONS.join(", ")}`);
-  return { ...profile, min, max, dist };
+  // Validate the recognised params — a bad one throws here rather than yielding a
+  // NaN sample that would silently disable pacing. Unknown keys are dropped, so
+  // the returned profile carries only vetted numbers.
+  const clean = { min, max, dist };
+  for (const [key, range] of Object.entries(PARAM_RANGES)) {
+    if (profile[key] === undefined) continue;
+    const value = Number(profile[key]);
+    if (!Number.isFinite(value) || value < range.min || value > range.max) {
+      throw new Error(`supervisor timing: ${key} must be a number in [${range.min}, ${range.max}]`);
+    }
+    clean[key] = value;
+  }
+  return clean;
 }
