@@ -13,8 +13,9 @@
  * The transport runs stateless (`sessionIdGenerator: undefined`), so no
  * handshake is required and none is assumed.
  */
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
+import { createServer as createNetServer } from "node:net";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -27,6 +28,11 @@ import { allowAll, denialMessage } from "./gate.js";
 import { TRANSPORT_TOOLS } from "./taskChannel.js";
 
 const SERVER_INFO = { name: "mcp-acp-bridge", version: "0.0.1" };
+
+// How long a sniff-phase socket may stall before the preamble decides it. The
+// HTTP server never sees these sockets, so its header/request timeouts do not
+// apply — this is their only bound.
+const SNIFF_TIMEOUT_MS = 10_000;
 
 /**
  * @param {{
@@ -44,8 +50,16 @@ export function createGateway(options = {}) {
   /** token -> session record */
   const sessions = new Map();
 
-  function openSession({ sessionId = randomUUID() } = {}) {
-    const token = randomBytes(24).toString("base64url");
+  // Set by listen() when an exit token is configured: the tunnel writes a
+  // `PHT/1 <token>` preamble on connect, we verify it at the raw socket, and the
+  // protected session's path refuses any request that did not arrive verified.
+  /** @type {{ token: string, protectedToken: string } | null} */
+  let exitGuard = null;
+
+  function openSession({ sessionId = randomUUID(), token = randomBytes(24).toString("base64url") } = {}) {
+    // A caller may pin the token (hence the URL path) — used to expose the
+    // supervisor seat at a known /mcp/<name> when its port is fixed, so it can be
+    // reached over a capability-gated tunnel without conveying a random secret.
     sessions.set(token, { sessionId, token });
     return { sessionId, token, path: `/mcp/${token}` };
   }
@@ -115,6 +129,16 @@ export function createGateway(options = {}) {
       return true;
     }
 
+    // The protected (supervisor) path is reachable only over a connection that
+    // presented the tunnel's exit token; an agent's own session, on a different
+    // path, is untouched. A direct loopback hit on the seat without the preamble
+    // is refused here, so the tunnel capability is the credential end to end.
+    if (exitGuard && match[1] === exitGuard.protectedToken && !req.socket.phtVerified) {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "supervisor seat requires the tunnel exit token" }));
+      return true;
+    }
+
     // Stateless: a new server and transport per request, no Mcp-Session-Id
     // issued and no initialize handshake required.
     const server = buildServer(session);
@@ -132,7 +156,12 @@ export function createGateway(options = {}) {
     return true;
   }
 
-  function listen(port = 0, host = "127.0.0.1") {
+  function listen(port = 0, host = "127.0.0.1", guard = {}) {
+    const exitToken = typeof guard.exitToken === "string" && guard.exitToken.length > 0 ? guard.exitToken : null;
+    if (exitToken) exitGuard = { token: exitToken, protectedToken: guard.protectedToken };
+    // Overridable only so a test need not wait the full stall window; production
+    // callers leave it at the default.
+    const sniffTimeoutMs = Number.isFinite(guard.sniffTimeoutMs) ? guard.sniffTimeoutMs : SNIFF_TIMEOUT_MS;
     const http = createServer((req, res) => {
       handleRequest(req, res).then(
         (handled) => {
@@ -147,9 +176,21 @@ export function createGateway(options = {}) {
       );
     });
 
-    return new Promise((resolve) => {
-      http.listen(port, host, () => {
-        const { port: boundPort } = http.address();
+    // Without an exit token the HTTP server binds the port directly. With one, a
+    // thin net server peeks the first line: a `PHT/1 <token>` preamble (written
+    // by the peerhailer tunnel on connect) is verified and stripped, the socket
+    // marked, and the remaining bytes — the real HTTP request — handed on. A
+    // connection with no preamble still reaches HTTP; only the protected path
+    // refuses it. The preamble never reaches the HTTP parser.
+    const front = exitToken ? createNetServer((socket) => sniffPreamble(socket, exitToken, http, sniffTimeoutMs)) : http;
+
+    return new Promise((resolve, reject) => {
+      // A fixed seat port can collide (EADDRINUSE); the error now surfaces on the
+      // front listener, so it needs its own handler or it is an uncaught throw.
+      front.once("error", reject);
+      front.listen(port, host, () => {
+        front.removeListener("error", reject);
+        const { port: boundPort } = front.address();
         resolve({
           port: boundPort,
           url: (token) => `http://${host}:${boundPort}/mcp/${token}`,
@@ -158,7 +199,11 @@ export function createGateway(options = {}) {
               // Force-close keep-alive sockets rather than waiting for the peer:
               // `http.close` alone waits for idle, and an MCP client polling over
               // keep-alive keeps it open past when the bridge is done with it.
-              http.close(() => done(undefined));
+              http.close(() => {
+                if (front === http) return done(undefined);
+                front.close(() => done(undefined));
+                front.closeAllConnections?.();
+              });
               http.closeAllConnections?.();
             }),
         });
@@ -167,6 +212,67 @@ export function createGateway(options = {}) {
   }
 
   return { openSession, closeSession, handleRequest, listen };
+}
+
+/**
+ * Peek a `PHT/1 <token>\r\n` preamble off a freshly connected socket, verify it,
+ * and hand the socket (with the preamble consumed and the rest un-shifted back)
+ * to the HTTP server. A connection whose first bytes are not the preamble is
+ * passed straight through — its `phtVerified` stays false, so only the protected
+ * path treats it differently. Buffers across TCP segment boundaries; caps the
+ * unmatched wait so a silent or oversized opener cannot pin memory, and caps the
+ * total stall with a socket timeout so a silent opener cannot pin the fd either.
+ * @param {import("node:net").Socket} socket
+ * @param {string} exitToken
+ * @param {import("node:http").Server} http
+ * @param {number} [timeoutMs]
+ */
+function sniffPreamble(socket, exitToken, http, timeoutMs = SNIFF_TIMEOUT_MS) {
+  const PREFIX = "PHT/1 ";
+  const MAX_LINE = 512;
+  let buf = Buffer.alloc(0);
+  const onError = () => socket.destroy();
+  // The HTTP server hands these sockets no timeout (it never sees them), so a
+  // peer that connects and stalls — sending nothing, or fewer bytes than the
+  // prefix — would pin the fd forever. Since defeating exactly that kind of
+  // loopback misuse is the point of the guard, the guarded seat must not be
+  // easier to stall than an unguarded HTTP server. Cleared on hand-off.
+  socket.setTimeout(timeoutMs, () => socket.destroy());
+  /** Hand the (now clean) socket to the HTTP server, buffered remainder first. */
+  const hand = (/** @type {Buffer} */ leftover) => {
+    socket.removeListener("data", onData);
+    socket.removeListener("error", onError);
+    socket.setTimeout(0);
+    if (leftover.length) socket.unshift(leftover);
+    http.emit("connection", socket);
+  };
+  const onData = (/** @type {Buffer} */ chunk) => {
+    buf = Buffer.concat([buf, chunk]);
+    // Undecided until we have at least the prefix length.
+    if (buf.length < PREFIX.length) return;
+    if (buf.subarray(0, PREFIX.length).toString() !== PREFIX) {
+      hand(buf);
+      return;
+    }
+    const nl = buf.indexOf(0x0a);
+    if (nl < 0) {
+      if (buf.length > MAX_LINE) socket.destroy();
+      return; // wait for the newline
+    }
+    const token = buf.subarray(PREFIX.length, nl).toString().trim();
+    if (tokensEqual(token, exitToken)) socket.phtVerified = true;
+    hand(buf.subarray(nl + 1));
+  };
+  socket.on("data", onData);
+  socket.on("error", onError);
+}
+
+/** Constant-time token compare that also guards differing lengths. */
+function tokensEqual(a, b) {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
 }
 
 function errorResult(text) {

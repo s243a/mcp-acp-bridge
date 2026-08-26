@@ -177,16 +177,34 @@ export async function startBridge(options = {}) {
     onToolCall: (event) => log(`[tool] ${event.phase} ${event.tool}`),
   });
 
-  const server = await gateway.listen();
+  // When a fixed seat port carries an exit token, the gateway fronts the port with
+  // a preamble sniff: the /mcp/supervisor path is refused unless the connection
+  // presented `PHT/1 <token>` (which the tunnel writes). Only meaningful with a
+  // fixed port and a seat, so it is scoped to both.
+  const seatExitToken = options.supervisorMcpPort && options.seatSupervisor ? options.supervisorMcpToken : undefined;
+  const server = await gateway.listen(options.supervisorMcpPort ?? 0, "127.0.0.1", {
+    exitToken: seatExitToken,
+    protectedToken: "supervisor",
+  });
 
   // The supervisor's own MCP session — separate from any agent's, and the only
   // one `isOperator` recognises, so claiming the seat requires holding this path,
   // not merely reaching the endpoint. Its URL is what an operator hands to a
   // supervisor client.
   if (options.seatSupervisor && supervisorAdapter) {
-    const supervisorSession = gateway.openSession();
+    // With a fixed port, pin the path too (/mcp/supervisor) so the seat is
+    // reachable over a tunnel by its capability rather than a secret token; the
+    // residual exposure is a process on this machine's loopback, which already
+    // has more reach than the seat grants. One fixed port ⇒ one such worker.
+    const supervisorSession = gateway.openSession(options.supervisorMcpPort ? { token: "supervisor" } : {});
     supervisorSessionIds.add(supervisorSession.sessionId);
     log(`[supervisor] seat open — connect a supervisor MCP client at ${server.url(supervisorSession.token)}`);
+    if (options.supervisorMcpPort) {
+      log(`[supervisor] fixed path — its security is the reachability of ${options.supervisorMcpPort} (a tunnel's capability), not the URL`);
+      if (seatExitToken) {
+        log(`[supervisor] exit token required — the seat path refuses any connection that did not arrive through the tunnel`);
+      }
+    }
   }
 
   // The ACP surface: a TCP endpoint a supervising *agent* connects to. A

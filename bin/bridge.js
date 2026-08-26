@@ -77,6 +77,39 @@ function parseArgs(argv) {
         // claims the seat and answers pending decisions. See docs/supervisor.md.
         options.seatSupervisor = true;
         break;
+      case "--supervisor-mcp-port": {
+        // Pin the MCP seat to a fixed port and a known path (/mcp/supervisor) so
+        // it can be reached over a tunnel — the credential is then the tunnel
+        // capability, not the URL's secrecy. Implies --supervisor-mcp. One fixed
+        // port ⇒ one supervised worker process.
+        const value = Number(argv[++i]);
+        if (!Number.isInteger(value) || value < 0 || value > 65535) {
+          process.stderr.write("mcp-acp-bridge: --supervisor-mcp-port must be a port number\n");
+          process.exit(2);
+        }
+        options.supervisorMcpPort = value;
+        options.seatSupervisor = true;
+        break;
+      }
+      case "--supervisor-mcp-token": {
+        // Optional defence in depth for the fixed seat: the peerhailer tunnel is
+        // configured to write `PHT/1 <token>` on connect, and the seat's gateway
+        // refuses the /mcp/supervisor path to any connection that did not present
+        // it. The caller (the supervisor MCP client) never sees the token; it is
+        // operator config on both ends of the tunnel. Implies --supervisor-mcp.
+        const value = argv[++i];
+        // Printable ASCII, no whitespace, >= 8 chars: the token crosses to a
+        // peerhailer tunnel that writes it verbatim on one line, so whitespace or
+        // control bytes would make the two ends silently disagree (403 forever),
+        // and a 1-char token is one loopback packet burst from brute force.
+        if (typeof value !== "string" || !/^[\x21-\x7e]{8,}$/.test(value)) {
+          process.stderr.write("mcp-acp-bridge: --supervisor-mcp-token must be >= 8 printable non-space characters\n");
+          process.exit(2);
+        }
+        options.supervisorMcpToken = value;
+        options.seatSupervisor = true;
+        break;
+      }
       case "--supervisor-acp": {
         // The same seat, over ACP, for a supervisor that is itself an agent. The
         // bridge opens a TCP endpoint (an optional port follows, else ephemeral)
@@ -256,6 +289,8 @@ try {
     seatSupervisor: options.seatSupervisor,
     supervisorAcp: options.supervisorAcp,
     supervisorAcpPush: options.supervisorAcpPush,
+    supervisorMcpPort: options.supervisorMcpPort,
+    supervisorMcpToken: options.supervisorMcpToken,
     supervisorTiming: options.supervisorTiming,
     ...(options.supervisor
       ? {

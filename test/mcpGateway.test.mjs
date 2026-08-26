@@ -108,3 +108,13 @@ test("a closed session stops accepting calls", async () => {
   const response = await fetch(server.url(session.token), { method: "POST" });
   assert.equal(response.status, 404);
 });
+
+test("openSession honours a provided token (fixed seat path), else randomises", () => {
+  const gateway = createGateway({ tools: [] });
+  const pinned = gateway.openSession({ token: "supervisor" });
+  assert.equal(pinned.token, "supervisor");
+  assert.equal(pinned.path, "/mcp/supervisor");
+  const random = gateway.openSession();
+  assert.notEqual(random.token, "supervisor");
+  assert.match(random.path, /^\/mcp\/[A-Za-z0-9_-]{20,}$/);
+});
