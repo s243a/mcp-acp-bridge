@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { startBridge } from "../src/bridge.js";
 import { getAdapter } from "../src/agents.js";
-import { createSpawnSupervisor } from "../src/supervisor.js";
+import { makeSupervisorCliOptions } from "../src/supervisorCli.js";
 import { parseTimingProfile } from "../src/supervisorTiming.js";
 
 const TRANSPORT_WORDS = new Set(["acp", "agent", "stdio"]);
@@ -215,6 +215,7 @@ if (rawArgs.includes("about") || rawArgs.includes("--version") || rawArgs.includ
 }
 
 const options = parseArgs(rawArgs);
+const supervisorOptions = makeSupervisorCliOptions(options);
 
 /** A policy argument naming a readable file is loaded; otherwise it is a preset. */
 function resolvePolicy(value) {
@@ -262,12 +263,7 @@ if (Number.isFinite(options.listen)) {
     // A supervisor here supervises every per-connection bridge. Without this a
     // `--listen` bridge silently ignored `--supervisor` — the exact deployment
     // the service plugin spawns, and the one that most wants review.
-    ...(options.supervisor
-      ? {
-          supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }),
-          whenSupervisorAbsent: options.requireSupervisor ? "deny" : "human",
-        }
-      : {}),
+    ...supervisorOptions,
     log,
   });
   const { port } = await tcp.listen();
@@ -292,12 +288,7 @@ try {
     supervisorMcpPort: options.supervisorMcpPort,
     supervisorMcpToken: options.supervisorMcpToken,
     supervisorTiming: options.supervisorTiming,
-    ...(options.supervisor
-      ? {
-          supervisor: createSpawnSupervisor({ command: options.supervisor, args: [] }),
-          whenSupervisorAbsent: options.requireSupervisor ? "deny" : "human",
-        }
-      : {}),
+    ...supervisorOptions,
     cwd: options.cwd ?? process.cwd(),
     codexApprovalPolicy: options.codexApprovalPolicy,
     codexSandbox: options.codexSandbox,
